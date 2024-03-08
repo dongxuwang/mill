@@ -63,7 +63,7 @@ object BloopTests extends TestSuite {
       val sv = sys.props.getOrElse("TEST_SCALA_2_13_VERSION", ???)
       override def skipBloop: Boolean = isWin
       override def scalaVersion = sv
-      override def scalaNativeVersion = sys.props.getOrElse("TEST_SCALANATIVE_VERSION", ???)
+      override def scalaNativeVersion = sys.props.getOrElse("TEST_SCALANATIVE_0_4_VERSION", ???)
       override def releaseMode = T(ReleaseMode.Debug)
     }
 
@@ -76,7 +76,7 @@ object BloopTests extends TestSuite {
 
   def readBloopConf(jsonFile: String) =
     _root_.bloop.config.read((workdir / ".bloop" / jsonFile).toNIO)
-      .right
+      .toOption
       .get
 
   def tests: Tests = Tests {
@@ -166,7 +166,7 @@ object BloopTests extends TestSuite {
       }
       "configAccessTest" - {
         val (accessedConfig, _) =
-          testEvaluator(build.scalaModule.bloop.config).asSuccess.get.value.right.get
+          testEvaluator(build.scalaModule.bloop.config).asSuccess.get.value.toOption.get
         assert(accessedConfig == scalaModuleConfig)
       }
       "noDepTest" - {
@@ -203,7 +203,7 @@ object BloopTests extends TestSuite {
             val platform = p.platform.get.asInstanceOf[BloopConfig.Platform.Native]
 
             val (clang, _) =
-              testEvaluator(build.scalanativeModule.nativeClang).asSuccess.get.value.right.get
+              testEvaluator(build.scalanativeModule.nativeClang).asSuccess.get.value.toOption.get
 
             assert(name == "scalanativeModule")
             assert(workspaceDir == Some(workdir.wrapped))

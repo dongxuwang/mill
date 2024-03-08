@@ -46,19 +46,21 @@ object Settings {
     "0.11.0-M7"
   )
   val docTags: Seq[String] = Seq()
-  val mimaBaseVersions: Seq[String] = 0.to(6).map("0.11." + _)
+  val mimaBaseVersions: Seq[String] = 0.to(7).map("0.11." + _)
 }
 
 object Deps {
 
   // The Scala version to use
-  val scalaVersion = "2.13.12"
+  val scalaVersion = "2.13.13"
   // Scoverage 1.x will not get releases for newer Scala versions
   val scalaVersionForScoverageWorker1 = "2.13.8"
   // The Scala 2.12.x version to use for some workers
-  val workerScalaVersion212 = "2.12.18"
+  val workerScalaVersion212 = "2.12.19"
 
-  val testScala213Version = "2.13.8"
+  val testScala213Version = "2.13.10"
+  // Scala Native 4.2 will not get releases for new Scala version
+  val testScala213VersionForScalaNative42 = "2.13.8"
   val testScala212Version = "2.12.6"
   val testScala211Version = "2.11.12"
   val testScala210Version = "2.10.6"
@@ -79,7 +81,15 @@ object Deps {
   }
 
   object Scalanative_0_4 {
-    val scalanativeVersion = "0.4.16"
+    val scalanativeVersion = "0.4.17"
+    val scalanativeTools = ivy"org.scala-native::tools:${scalanativeVersion}"
+    val scalanativeUtil = ivy"org.scala-native::util:${scalanativeVersion}"
+    val scalanativeNir = ivy"org.scala-native::nir:${scalanativeVersion}"
+    val scalanativeTestRunner = ivy"org.scala-native::test-runner:${scalanativeVersion}"
+  }
+
+  object Scalanative_0_5 {
+    val scalanativeVersion = "0.5.0-RC1"
     val scalanativeTools = ivy"org.scala-native::tools:${scalanativeVersion}"
     val scalanativeUtil = ivy"org.scala-native::util:${scalanativeVersion}"
     val scalanativeNir = ivy"org.scala-native::nir:${scalanativeVersion}"
@@ -115,8 +125,8 @@ object Deps {
   val play =
     Seq(Play_3_0, Play_2_9, Play_2_8, Play_2_7, Play_2_6).map(p => (p.playBinVersion, p)).toMap
 
-  val acyclic = ivy"com.lihaoyi:::acyclic:0.3.9"
-  val ammoniteVersion = "3.0.0-M0-53-084f7f4e"
+  val acyclic = ivy"com.lihaoyi:::acyclic:0.3.11"
+  val ammoniteVersion = "3.0.0-M1"
   val asmTree = ivy"org.ow2.asm:asm-tree:9.6"
   val bloopConfig = ivy"ch.epfl.scala::bloop-config:1.5.5"
 
@@ -128,21 +138,21 @@ object Deps {
   val fastparse = ivy"com.lihaoyi::fastparse:3.0.2"
   val flywayCore = ivy"org.flywaydb:flyway-core:8.5.13"
   val graphvizJava = ivy"guru.nidi:graphviz-java-all-j2v8:0.18.1"
-  val junixsocket = ivy"com.kohlschutter.junixsocket:junixsocket-core:2.8.3"
+  val junixsocket = ivy"com.kohlschutter.junixsocket:junixsocket-core:2.9.0"
 
   val jgraphtCore = ivy"org.jgrapht:jgrapht-core:1.4.0" // 1.5.0+ dont support JDK8
 
-  val jline = ivy"org.jline:jline:3.25.0"
+  val jline = ivy"org.jline:jline:3.25.1"
   val jnaVersion = "5.14.0"
   val jna = ivy"net.java.dev.jna:jna:${jnaVersion}"
   val jnaPlatform = ivy"net.java.dev.jna:jna-platform:${jnaVersion}"
 
   val junitInterface = ivy"com.github.sbt:junit-interface:0.13.3"
   val lambdaTest = ivy"de.tototec:de.tobiasroeser.lambdatest:0.8.0"
-  val log4j2Core = ivy"org.apache.logging.log4j:log4j-core:2.22.1"
+  val log4j2Core = ivy"org.apache.logging.log4j:log4j-core:2.23.0"
   val osLib = ivy"com.lihaoyi::os-lib:0.9.3"
   val pprint = ivy"com.lihaoyi::pprint:0.8.1"
-  val mainargs = ivy"com.lihaoyi::mainargs:0.6.1"
+  val mainargs = ivy"com.lihaoyi::mainargs:0.6.2"
   val millModuledefsVersion = "0.10.9"
   val millModuledefsString = s"com.lihaoyi::mill-moduledefs:${millModuledefsVersion}"
   val millModuledefs = ivy"${millModuledefsString}"
@@ -157,7 +167,7 @@ object Deps {
   val scalafmtDynamic = ivy"org.scalameta::scalafmt-dynamic:3.7.15" // scala-steward:off
   def scalaReflect(scalaVersion: String) = ivy"org.scala-lang:scala-reflect:${scalaVersion}"
   val scalacScoveragePlugin = ivy"org.scoverage:::scalac-scoverage-plugin:1.4.11"
-  val scoverage2Version = "2.0.11"
+  val scoverage2Version = "2.1.0"
   val scalacScoverage2Plugin = ivy"org.scoverage:::scalac-scoverage-plugin:${scoverage2Version}"
   val scalacScoverage2Reporter = ivy"org.scoverage::scalac-scoverage-reporter:${scoverage2Version}"
   val scalacScoverage2Domain = ivy"org.scoverage::scalac-scoverage-domain:${scoverage2Version}"
@@ -166,10 +176,10 @@ object Deps {
   val scalaparse = ivy"com.lihaoyi::scalaparse:${fastparse.version}"
   val scalatags = ivy"com.lihaoyi::scalatags:0.12.0"
   // keep in sync with doc/antora/antory.yml
-  val semanticDBscala = ivy"org.scalameta:::semanticdb-scalac:4.8.15"
-  val semanticDbJava = ivy"com.sourcegraph:semanticdb-java:0.9.8"
+  val semanticDBscala = ivy"org.scalameta:::semanticdb-scalac:4.9.0"
+  val semanticDbJava = ivy"com.sourcegraph:semanticdb-java:0.9.9"
   val sourcecode = ivy"com.lihaoyi::sourcecode:0.3.1"
-  val upickle = ivy"com.lihaoyi::upickle:3.1.4"
+  val upickle = ivy"com.lihaoyi::upickle:3.2.0"
   val utest = ivy"com.lihaoyi::utest:0.8.2"
   val windowsAnsi = ivy"io.github.alexarchambault.windows-ansi:windows-ansi:0.0.5"
   val zinc = ivy"org.scala-sbt::zinc:1.10.0-M3"
@@ -184,15 +194,16 @@ object Deps {
     ivy"org.apache.ant:ant:1.10.14",
     ivy"commons-io:commons-io:2.15.1",
     ivy"com.google.code.gson:gson:2.10.1",
-    ivy"com.google.protobuf:protobuf-java:3.25.1",
-    ivy"com.google.guava:guava:32.1.3-jre",
-    ivy"org.yaml:snakeyaml:2.2"
+    ivy"com.google.protobuf:protobuf-java:3.25.3",
+    ivy"com.google.guava:guava:33.0.0-jre",
+    ivy"org.yaml:snakeyaml:2.2",
+    ivy"org.apache.commons:commons-compress:[1.26.0,)"
   )
 
   /** Used in tests. */
   object TestDeps {
     // tests framework (test)
-    val scalaTest = ivy"org.scalatest::scalatest:3.2.17"
+    val scalaTest = ivy"org.scalatest::scalatest:3.2.18"
     val zioTest = ivy"dev.zio::zio-test:2.0.21"
   }
 
@@ -241,6 +252,7 @@ val bridgeScalaVersions = Seq(
   "2.12.16",
   "2.12.17",
   "2.12.18",
+  "2.12.19",
   /*"2.13.0", "2.13.1", "2.13.2",*/ "2.13.3",
   "2.13.4",
   "2.13.5",
@@ -250,7 +262,8 @@ val bridgeScalaVersions = Seq(
   "2.13.9",
   "2.13.10",
   "2.13.11",
-  "2.13.12"
+  "2.13.12",
+  "2.13.13"
 )
 
 // We limit the number of compiler bridges to compile and publish for local
@@ -386,6 +399,7 @@ trait MillBaseTestsModule extends MillJavaModule with TestModule {
       s"-DMILL_SCALA_2_13_VERSION=${Deps.scalaVersion}",
       s"-DMILL_SCALA_2_12_VERSION=${Deps.workerScalaVersion212}",
       s"-DTEST_SCALA_2_13_VERSION=${Deps.testScala213Version}",
+      s"-DTEST_SCALA_2_13_VERSION_FOR_SCALANATIVE_4_2=${Deps.testScala213VersionForScalaNative42}",
       s"-DTEST_SCALA_2_12_VERSION=${Deps.testScala212Version}",
       s"-DTEST_SCALA_2_11_VERSION=${Deps.testScala211Version}",
       s"-DTEST_SCALA_2_10_VERSION=${Deps.testScala210Version}",
@@ -394,7 +408,8 @@ trait MillBaseTestsModule extends MillJavaModule with TestModule {
       s"-DTEST_SCALA_3_2_VERSION=${Deps.testScala32Version}",
       s"-DTEST_SCALA_3_3_VERSION=${Deps.testScala33Version}",
       s"-DTEST_SCALAJS_VERSION=${Deps.Scalajs_1.scalaJsVersion}",
-      s"-DTEST_SCALANATIVE_VERSION=${Deps.Scalanative_0_4.scalanativeVersion}",
+      s"-DTEST_SCALANATIVE_0_4_VERSION=${Deps.Scalanative_0_4.scalanativeVersion}",
+      s"-DTEST_SCALANATIVE_0_5_VERSION=${Deps.Scalanative_0_5.scalanativeVersion}",
       s"-DTEST_UTEST_VERSION=${Deps.utest.dep.version}",
       s"-DTEST_SCALATEST_VERSION=${Deps.TestDeps.scalaTest.dep.version}",
       s"-DTEST_TEST_INTERFACE_VERSION=${Deps.sbtTestInterface.dep.version}",
@@ -840,6 +855,7 @@ object contrib extends Module {
         Seq(
           s"-DMILL_SCOVERAGE_VERSION=${Deps.scalacScoveragePlugin.dep.version}",
           s"-DMILL_SCOVERAGE2_VERSION=${Deps.scalacScoverage2Plugin.dep.version}",
+          s"-DTEST_SCALA_2_13_VERSION_FOR_SCOVERAGE_1=${Deps.scalaVersionForScoverageWorker1}",
           s"-DTEST_SCALA_2_12_VERSION=2.12.15" // last supported 2.12 version for Scoverage 1.x
         )
     }
@@ -947,13 +963,13 @@ object contrib extends Module {
 
 object scalanativelib extends MillStableScalaModule {
   def moduleDeps = Seq(scalalib, scalanativelib.`worker-api`)
-  def testTransitiveDeps = super.testTransitiveDeps() ++ Seq(worker("0.4").testDep())
+  def testTransitiveDeps = super.testTransitiveDeps() ++ Seq(worker("0.4").testDep(), worker("0.5").testDep())
 
   object `worker-api` extends MillPublishScalaModule {
     def ivyDeps = Agg(Deps.sbtTestInterface)
   }
 
-  object worker extends Cross[WorkerModule]("0.4")
+  object worker extends Cross[WorkerModule]("0.4", "0.5")
 
   trait WorkerModule extends MillPublishScalaModule with Cross.Module[String] {
     def scalaNativeWorkerVersion = crossValue
@@ -961,6 +977,14 @@ object scalanativelib extends MillStableScalaModule {
     def testDepPaths = T { Seq(compile().classes) }
     def moduleDeps = Seq(scalanativelib.`worker-api`)
     def ivyDeps = scalaNativeWorkerVersion match {
+      case "0.5" =>
+        Agg(
+          Deps.osLib,
+          Deps.Scalanative_0_5.scalanativeTools,
+          Deps.Scalanative_0_5.scalanativeUtil,
+          Deps.Scalanative_0_5.scalanativeNir,
+          Deps.Scalanative_0_5.scalanativeTestRunner
+        )
       case "0.4" =>
         Agg(
           Deps.osLib,
