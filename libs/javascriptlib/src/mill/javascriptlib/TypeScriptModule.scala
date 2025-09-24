@@ -4,8 +4,7 @@ import mill.*
 import os.*
 
 import scala.annotation.tailrec
-import scala.util.Try
-import mill.scalalib.publish.licenseFormat
+import mill.javalib.publish.JsonFormatters.licenseFormat
 import mill.api.BuildCtx
 
 trait TypeScriptModule extends Module { outer =>
@@ -572,7 +571,6 @@ trait TypeScriptModule extends Module { outer =>
         .map {
           case (key, "") => Some(s"--$key")
           case (key, value) => Some(s"--$key=$value")
-          case _ => None
         }.toSeq ++ Seq(if (enableEsm()) Some("--loader") else None)).flatten
 
     val runnable: Shellable = (
@@ -847,7 +845,7 @@ object TypeScriptModule {
       `type`: String = "",
       types: String = "",
       author: String = "",
-      license: mill.scalalib.publish.License = mill.scalalib.publish.License.MIT,
+      license: mill.javalib.publish.License = mill.javalib.publish.License.MIT,
       homepage: String = "",
       bin: ujson.Obj = ujson.Obj(),
       files: ujson.Arr = Seq.empty[String],
@@ -905,7 +903,7 @@ object TypeScriptModule {
   }
 
   object PackageJson {
-    implicit val rw: upickle.default.ReadWriter[PackageJson] = upickle.default.macroRW
+    implicit val rw: upickle.ReadWriter[PackageJson] = upickle.macroRW
   }
 
   private def removeEmptyValues(json: ujson.Value): ujson.Value = {

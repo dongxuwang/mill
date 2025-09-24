@@ -3,7 +3,7 @@ package mill.scalanativelib
 import mill._
 import mill.api.Discover
 import mill.api.ExecutionPaths
-import mill.jvmlib.api.JvmWorkerUtil
+import mill.javalib.api.JvmWorkerUtil
 import mill.scalalib.{PublishModule, ScalaModule, TestModule}
 import mill.scalalib.publish.{Developer, License, PomSettings, VersionControl}
 import mill.scalanativelib.api._
@@ -15,31 +15,32 @@ import java.util.jar.JarFile
 import scala.jdk.CollectionConverters._
 
 object CompileRunTests extends TestSuite {
-  trait HelloNativeWorldModule
-      extends ScalaModule
-      with ScalaNativeModule
-      with PublishModule
-      with Cross.Module3[String, String, ReleaseMode] {
-    val (crossScalaVersion, sNativeVersion, mode) = (crossValue, crossValue2, crossValue3)
-    def scalaVersion = crossScalaVersion
-    def publishVersion = "0.0.1-SNAPSHOT"
-    override def mainClass = Some("hello.Main")
-  }
 
   val scala213 = sys.props.getOrElse("TEST_SCALA_2_13_VERSION_FOR_SCALANATIVE_4_2", ???)
   val scala33 = sys.props.getOrElse("TEST_SCALA_3_3_VERSION", ???)
   val scalaNative05 = sys.props.getOrElse("TEST_SCALANATIVE_0_5_VERSION", ???)
   val testUtestVersion = sys.props.getOrElse("TEST_UTEST_VERSION", ???)
 
+  trait HelloNativeWorldModule
+      extends ScalaModule
+      with ScalaNativeModule
+      with PublishModule
+      with Cross.Module3[String, String, ReleaseMode] {
+
+    val (crossScalaVersion, sNativeVersion, mode) = (crossValue, crossValue2, crossValue3)
+    def scalaVersion = crossScalaVersion
+    def publishVersion = "0.0.1-SNAPSHOT"
+    override def mainClass = Some("hello.Main")
+  }
+
   object HelloNativeWorld extends TestRootModule {
     implicit object ReleaseModeToSegments
         extends Cross.ToSegments[ReleaseMode](v => List(v.toString))
 
-    val matrix = for {
-      scala <- Seq(scala33, scala213)
-      scalaNative <- Seq(scalaNative05)
-      mode <- List(ReleaseMode.Debug, ReleaseMode.ReleaseFast)
-    } yield (scala, scalaNative, mode)
+    val matrix = Seq(
+      (scala33, scalaNative05, ReleaseMode.Debug),
+      (scala213, scalaNative05, ReleaseMode.ReleaseFast)
+    )
 
     object build extends Cross[RootModule](matrix)
     trait RootModule extends HelloNativeWorldModule {
@@ -57,7 +58,7 @@ object CompileRunTests extends TestSuite {
       )
 
       object test extends ScalaNativeTests with TestModule.Utest {
-        override def sources = Task.Sources { this.moduleDir / "src/utest" }
+        override def sources = Task.Sources("src/utest")
         override def utestVersion: T[String] = testUtestVersion
       }
     }
@@ -77,6 +78,7 @@ object CompileRunTests extends TestSuite {
   val millSourcePath = os.Path(sys.env("MILL_TEST_RESOURCE_DIR")) / "hello-native-world"
 
   def tests: Tests = Tests {
+
     test("compile") {
       def testCompileFromScratch(
           scalaVersion: String,
@@ -119,7 +121,7 @@ object CompileRunTests extends TestSuite {
           eval(HelloNativeWorld.build(
             scala213,
             scalaNative05,
-            ReleaseMode.Debug
+            ReleaseMode.ReleaseFast
           ).jar): @unchecked
         val jar = result.value.path
         val entries = new JarFile(jar.toIO).entries().asScala.map(_.getName)
@@ -145,6 +147,26 @@ object CompileRunTests extends TestSuite {
       testAllMatrix((scala, scalaNative, releaseMode) => checkRun(scala, scalaNative, releaseMode))
     }
 
+    def checkRunMain(scalaVersion: String, scalaNativeVersion: String, mode: ReleaseMode): Unit =
+      UnitTester(HelloNativeWorld, millSourcePath).scoped { eval =>
+        val task =
+          HelloNativeWorld.build(scalaVersion, scalaNativeVersion, mode).runMain("hello.Main2")
+        val Right(result) = eval(task): @unchecked
+
+        val paths = ExecutionPaths.resolve(eval.outPath, task)
+        val stdout = os.proc(paths.dest / "out").call().out.lines()
+        assert(
+          stdout.contains("Hello from Main2"),
+          result.evalCount > 0
+        )
+      }
+
+    test("runMain") {
+      testAllMatrix((scala, scalaNative, releaseMode) =>
+        checkRunMain(scala, scalaNative, releaseMode)
+      )
+    }
+
   }
 
   def compileClassfiles(scalaVersion: String) = {
@@ -154,14 +176,20 @@ object CompileRunTests extends TestSuite {
       "ArgsParser.class",
       "Main.class",
       "Main$.class",
-      "Main$.nir"
+      "Main$.nir",
+      "Main2.class",
+      "Main2.nir",
+      "Main2$.class",
+      "Main2$.nir"
     )
 
     val scalaVersionSpecific =
-      if (JvmWorkerUtil.isScala3(scalaVersion)) Set("ArgsParser.tasty", "Main.tasty")
+      if (JvmWorkerUtil.isScala3(scalaVersion)) Set("ArgsParser.tasty", "Main.tasty", "Main2.tasty")
       else Set(
         "Main$delayedInit$body.class",
-        "Main$delayedInit$body.nir"
+        "Main$delayedInit$body.nir",
+        "Main2$delayedInit$body.class",
+        "Main2$delayedInit$body.nir"
       )
 
     val scalaNativeVersionSpecific = Set("Main.nir", "ArgsParser.nir")

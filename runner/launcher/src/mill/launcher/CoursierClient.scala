@@ -3,19 +3,25 @@ package mill.launcher
 import coursier.{Artifacts, Dependency, ModuleName, Organization, Resolve, VersionConstraint}
 import coursier.cache.{ArchiveCache, FileCache}
 import coursier.jvm.{JavaHome, JvmCache, JvmChannel, JvmIndex}
+import coursier.maven.MavenRepository
 import coursier.util.Task
 import coursier.core.Module
 
+import java.io.File
+
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Await
-import scala.concurrent.duration.Duration
-import mill.coursierutil.TestOverridesRepo
 
 object CoursierClient {
   def resolveMillDaemon() = {
-    val repositories = Await.result(Resolve().finalRepositories.future(), Duration.Inf)
     val coursierCache0 = FileCache[Task]()
       .withLogger(coursier.cache.loggers.RefreshLogger.create())
+
+    val testOverridesRepos = Option(System.getenv("MILL_LOCAL_TEST_REPO"))
+      .toSeq
+      .flatMap(_.split(File.pathSeparator).toSeq)
+      .map { path =>
+        MavenRepository(os.Path(path).toURI.toASCIIString)
+      }
 
     val artifactsResultOrError = {
 
@@ -25,15 +31,16 @@ object CoursierClient {
           Module(Organization("com.lihaoyi"), ModuleName("mill-runner-daemon_3"), Map()),
           VersionConstraint(mill.client.BuildInfo.millVersion)
         )))
-        .withRepositories(Seq(TestOverridesRepo) ++ repositories)
+        .withRepositories(testOverridesRepos ++ Resolve.defaultRepositories)
 
-      resolve.either() match {
-        case Left(err) => sys.error(err.toString)
-        case Right(v) =>
-          Artifacts(coursierCache0)
-            .withResolution(v)
-            .eitherResult()
-            .right.get
+      val result = resolve.either().flatMap { v =>
+        Artifacts(coursierCache0)
+          .withResolution(v)
+          .eitherResult()
+      }
+      result match {
+        case Left(e) => sys.error(e.toString())
+        case Right(v) => v
       }
     }
 
@@ -48,7 +55,7 @@ object CoursierClient {
       .withIndex(
         JvmIndex.load(
           cache = coursierCache0,
-          repositories = Resolve().repositories,
+          repositories = Resolve.defaultRepositories,
           indexChannel = JvmChannel.module(
             JvmChannel.centralModule(),
             version = mill.client.Versions.coursierJvmIndexVersion

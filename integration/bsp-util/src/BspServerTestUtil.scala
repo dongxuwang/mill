@@ -1,58 +1,59 @@
 package mill.integration
 
-import ch.epfl.scala.{bsp4j => b}
+import ch.epfl.scala.bsp4j as b
 import com.google.gson.{Gson, GsonBuilder}
 import coursier.cache.CacheDefaults
 import mill.api.BuildInfo
 import mill.bsp.Constants
-import mill.testrunner.TestRunnerUtils
-import org.eclipse.{lsp4j => l}
+import org.eclipse.lsp4j as l
 import org.eclipse.lsp4j.jsonrpc.services.JsonRequest
 
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{CompletableFuture, ExecutorService, Executors, ThreadFactory}
-
-import scala.jdk.CollectionConverters._
+import scala.jdk.CollectionConverters.*
 import scala.reflect.ClassTag
 
 object BspServerTestUtil {
 
-  /** Allows to update the snapshots on the disk when running tests. */
-  lazy val updateSnapshots: Boolean = {
-    val varName = "MILL_TESTS_BSP_UPDATE_SNAPSHOTS"
-    sys.env.get(varName) match {
-      case Some("1") =>
-        println(s"Updating BSP snapshots for tests.")
-        true
-      case _ =>
-        println(s"Using current BSP snapshots. Update with env var $varName=1")
-        false
+  private[mill] def bsp4jVersion: String = sys.props.getOrElse("BSP4J_VERSION", ???)
+
+  trait TestBuildClient extends b.BuildClient {
+    // Whether to check the validity of some messages
+    protected def enableAsserts: Boolean = true
+    private var gotInvalidMessages0 = false
+    def gotInvalidMessages: Boolean = gotInvalidMessages0
+
+    protected def doAssert(condition: Boolean): Unit = {
+      if (enableAsserts) {
+        if (!condition)
+          gotInvalidMessages0 = true
+        assert(condition)
+      }
+    }
+
+    def onBuildTaskProgress(params: b.TaskProgressParams): Unit = {
+      doAssert(params.getProgress <= params.getTotal)
     }
   }
 
-  private[mill] def bsp4jVersion: String = sys.props.getOrElse("BSP4J_VERSION", ???)
-
-  trait DummyBuildClient extends b.BuildClient {
+  trait DummyBuildClient extends TestBuildClient {
     def onBuildLogMessage(params: b.LogMessageParams): Unit = ()
     def onBuildPublishDiagnostics(params: b.PublishDiagnosticsParams): Unit = ()
     def onBuildShowMessage(params: b.ShowMessageParams): Unit = ()
     def onBuildTargetDidChange(params: b.DidChangeBuildTarget): Unit = ()
     def onBuildTaskFinish(params: b.TaskFinishParams): Unit = ()
-    def onBuildTaskProgress(params: b.TaskProgressParams): Unit = ()
     def onBuildTaskStart(params: b.TaskStartParams): Unit = ()
     def onRunPrintStderr(params: b.PrintParams): Unit = ()
     def onRunPrintStdout(params: b.PrintParams): Unit = ()
   }
-
-  object DummyBuildClient extends DummyBuildClient
 
   val gson: Gson = new GsonBuilder().setPrettyPrinting().create()
   def compareWithGsonSnapshot[T: ClassTag](
       value: T,
       snapshotPath: os.Path,
       normalizedLocalValues: Seq[(String, String)] = Nil
-  ): Unit = {
+  )(implicit reporter: utest.framework.GoldenFix.Reporter): Unit = {
 
     def normalizeLocalValues(input: String, inverse: Boolean = false): String =
       normalizedLocalValues.foldLeft(input) {
@@ -61,10 +62,6 @@ object BspServerTestUtil {
           input0.replace(from, to)
       }.replaceAll("\"javaHome\": \"[^\"]+\"", "\"javaHome\": \"java-home\"")
 
-    // This can be false only when generating test data for the first time.
-    // In that case, updateSnapshots needs to be true, so that we write test data on disk.
-    val snapshotExists = os.exists(snapshotPath)
-
     val jsonStr = normalizeLocalValues(
       gson.toJson(
         value,
@@ -72,74 +69,31 @@ object BspServerTestUtil {
       )
     )
 
-    if (updateSnapshots) {
-      System.err.println(if (snapshotExists) s"Updating $snapshotPath"
-      else s"Writing $snapshotPath")
-      os.write.over(snapshotPath, jsonStr, createFolders = true)
-    } else if (snapshotExists) {
-      val expectedJsonStr = os.read(snapshotPath)
-      if (jsonStr != expectedJsonStr) {
-        val diff = os.call((
-          "diff",
-          "-u",
-          os.temp(expectedJsonStr, suffix = s"${snapshotPath.last}-expectedJsonStr"),
-          os.temp(jsonStr, suffix = s"${snapshotPath.last}-jsonStr")
-        ))
-        sys.error(
-          s"""Error: value differs from snapshot in $snapshotPath
-             |
-             |You might want to set BspServerTestUtil.updateSnapshots to true,
-             |run this test again, and commit the updated test data files.
-             |
-             |$diff
-             |""".stripMargin
-        )
-      }
-    } else
-      sys.error(s"Error: no snapshot found at $snapshotPath")
+    utest.assertGoldenFile(jsonStr, snapshotPath.toNIO)
   }
 
   def compareLogWithSnapshot(
       log: String,
       snapshotPath: os.Path,
       ignoreLine: String => Boolean = _ => false
-  ): Unit = {
+  )(implicit reporter: utest.framework.GoldenFix.Reporter): Unit = {
 
-    val logLines = log.linesIterator.filterNot(ignoreLine).toVector
-    val snapshotLinesOpt = Option.when(os.exists(snapshotPath))(os.read.lines(snapshotPath))
+    val logLines = log
+      .linesIterator
+      .filterNot(ignoreLine)
+      .toVector
+      .map(
+        _.replaceAll("semanticdbVersion: [0-9.]*", "semanticdbVersion: *")
+          .replaceAll("\\d+ msec", "* msec")
+          .replaceAll("\\d+ Scala (sources?) to .*\\.\\.\\.", "* Scala $1 to * ...")
+          .replaceAll("\\[error\\] [a-zA-Z0-9-_/.]+:2:3:", "[error] *:2:3:")
+          .replaceAll("Evaluating [0-9]+ tasks", "Evaluating * tasks")
+      )
 
-    val matches = snapshotLinesOpt match {
-      case Some(snapshotLines) =>
-        if (snapshotLines.length == logLines.length)
-          snapshotLines.iterator
-            .zip(logLines.iterator)
-            .zipWithIndex
-            .forall {
-              case ((snapshotLine, logLine), lineIdx) =>
-                val cmp = TestRunnerUtils.matchesGlob(snapshotLine)
-                cmp(logLine) || {
-                  System.err.println(s"Line ${lineIdx + 1} differs:")
-                  System.err.println(s"  Expected: $snapshotLine")
-                  System.err.println(s"  Got: $logLine")
-                  false
-                }
-            }
-        else {
-          System.err.println(s"Expected ${snapshotLines.length} lines, got ${logLines.length}")
-          false
-        }
-      case None =>
-        System.err.println(s"$snapshotPath not found")
-        false
-    }
-
-    if (updateSnapshots) {
-      if (!matches) {
-        System.err.println(s"Updating $snapshotPath")
-        os.write.over(snapshotPath, logLines.mkString(System.lineSeparator()), createFolders = true)
-      }
-    } else
-      assert(matches)
+    utest.assertGoldenFile(
+      logLines.mkString(System.lineSeparator()),
+      snapshotPath.toNIO
+    )
   }
 
   val bspJsonrpcPool: ExecutorService = Executors.newCachedThreadPool(
@@ -163,34 +117,21 @@ object BspServerTestUtil {
       workspacePath: os.Path,
       millTestSuiteEnv: Map[String, String],
       bspLog: Option[(Array[Byte], Int) => Unit] = None,
-      client: b.BuildClient = DummyBuildClient,
-      millExecutableNoBspFile: Option[os.Path] = None
+      client: TestBuildClient = new DummyBuildClient {}
   )(f: (MillBuildServer, b.InitializeBuildResult) => T): T = {
 
     val outputOnErrorOnly = System.getenv("CI") != null
 
-    val bspCommand = millExecutableNoBspFile match {
-      case None =>
-        val bspMetadataFile = workspacePath / Constants.bspDir / s"${Constants.serverName}.json"
-        assert(os.exists(bspMetadataFile))
-        val contents = os.read(bspMetadataFile)
-        assert(
-          !contents.contains("--debug"),
-          contents.contains(s""""bspVersion":"$bsp4jVersion"""")
-        )
-        val contentsJson = ujson.read(contents)
-        contentsJson("argv").arr.map(_.str)
-      case Some(millExecutableNoBspFile0) =>
-        Seq(
-          millExecutableNoBspFile0.toString,
-          "--bsp",
-          "--ticker",
-          "false",
-          "--color",
-          "false",
-          "--jobs",
-          "1"
-        )
+    val bspCommand = {
+      val bspMetadataFile = workspacePath / Constants.bspDir / s"${Constants.serverName}.json"
+      assert(os.exists(bspMetadataFile))
+      val contents = os.read(bspMetadataFile)
+      assert(
+        !contents.contains("--debug"),
+        contents.contains(s""""bspVersion":"$bsp4jVersion"""")
+      )
+      val contentsJson = ujson.read(contents)
+      contentsJson("argv").arr.map(_.str)
     }
 
     val stderr = new ByteArrayOutputStream
@@ -233,14 +174,14 @@ object BspServerTestUtil {
         "Mill Integration",
         BuildInfo.millVersion,
         b.Bsp4j.PROTOCOL_VERSION,
-        workspacePath.toNIO.toUri.toASCIIString,
+        workspacePath.toURI.toASCIIString,
         new b.BuildClientCapabilities(List("java", "scala", "kotlin").asJava)
       )
       // Tell Mill BSP we want semanticdbs
       initParams.setData(
         InitData(
-          mill.api.shared.BuildInfo.semanticDBVersion,
-          mill.api.shared.BuildInfo.semanticDbJavaVersion
+          mill.api.daemon.BuildInfo.semanticDBVersion,
+          mill.api.daemon.BuildInfo.semanticDbJavaVersion
         )
       )
       // This seems to be unused by Mill BSP for now, setting it just in case
@@ -255,6 +196,10 @@ object BspServerTestUtil {
           buildServer.onBuildExit()
         }
       success = true
+      assert(
+        !client.gotInvalidMessages,
+        "Test build client got invalid messages from Mill, see assertions above"
+      )
       value
     } finally {
       try {
@@ -284,12 +229,11 @@ object BspServerTestUtil {
       javaVersion: String = sys.props("java.version")
   ): Seq[(String, String)] =
     Seq(
-      workspacePath.toNIO.toUri.toASCIIString.stripSuffix("/") -> "file:///workspace",
-      coursierCache.toNIO.toUri.toASCIIString -> "file:///coursier-cache/",
-      millWorkspace.toNIO.toUri.toASCIIString -> "file:///mill-workspace/",
-      javaHome.toNIO.toUri.toASCIIString.stripSuffix("/") -> "file:///java-home",
-      os.home.toNIO.toUri.toASCIIString.stripSuffix("/") -> "file:///user-home",
-      ("\"" + javaVersion + "\"") -> "\"<java-version>\"",
+      workspacePath.toURI.toASCIIString.stripSuffix("/") -> "file:///workspace",
+      coursierCache.toURI.toASCIIString -> "file:///coursier-cache/",
+      millWorkspace.toURI.toASCIIString -> "file:///mill-workspace/",
+      javaHome.toURI.toASCIIString.stripSuffix("/") -> "file:///java-home",
+      os.home.toURI.toASCIIString.stripSuffix("/") -> "file:///user-home",
       workspacePath.toString -> "/workspace",
       coursierCache.toString -> "/coursier-cache",
       millWorkspace.toString -> "/mill-workspace",

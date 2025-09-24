@@ -4,7 +4,7 @@ import mill.codesig.JvmModel.*
 import mill.codesig.JvmModel.JType.Cls as JCls
 import mill.internal.SpanningForest
 import mill.internal.SpanningForest.breadthFirst
-import upickle.default.{ReadWriter, macroRW}
+import upickle.{ReadWriter, macroRW}
 
 case class ResolvedCalls(
     localCalls: Map[MethodCall, ResolvedCalls.MethodCallInfo],
@@ -103,7 +103,7 @@ object ResolvedCalls {
         .items
         .flatMap { case (cls, clsInfo) =>
           clsInfo.methods.iterator.filter(_._2.isAbstract).toSeq match {
-            case Seq((k, v)) => Some((cls, k))
+            case Seq((k, _)) => Some((cls, k))
             case _ => None
           }
         }

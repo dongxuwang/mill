@@ -2,7 +2,10 @@ on:
   workflow_call:
     inputs:
       compileargs:
-        default: '__.compile'
+        # Just build the core application and the shared test helpers, but leave actually
+        # building the tests to the individual workers who need each test suite since
+        # there won't be much overlap and the various workers can work in parallel
+        default: 'dist.executable + core.api.test.compile + testkit.compile'
         type: string
       java-version:
         default: '11'
@@ -23,7 +26,7 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes }}
     steps:
       # For normal PR jobs, just checkout the base_ref the PR is against
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: { fetch-depth: 1 }
 
       - uses: ./.github/actions/pre-build-setup

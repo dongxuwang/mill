@@ -1,9 +1,7 @@
 package mill.testkit
 
+import mill.api.{Cached, Segments, SelectMode}
 import mill.constants.OutFiles
-import mill.api.Segments
-import mill.api.Cached
-import mill.api.SelectMode
 import ujson.Value
 
 import scala.concurrent.duration.*
@@ -28,7 +26,8 @@ class IntegrationTester(
     val millExecutable: os.Path,
     override val debugLog: Boolean = false,
     val baseWorkspacePath: os.Path = os.pwd,
-    val propagateJavaHome: Boolean = true
+    val propagateJavaHome: Boolean = true,
+    val cleanupProcessIdFile: Boolean = true
 ) extends IntegrationTester.Impl {
   initWorkspace()
 }
@@ -40,7 +39,18 @@ object IntegrationTester {
    * performing assertions against.
    */
   case class EvalResult(exitCode: Int, out: String, err: String) {
-    def isSuccess = exitCode == 0
+    def isSuccess: Boolean = exitCode == 0
+
+    def debugString: String = {
+      s"""Success: $isSuccess (exit code: $exitCode)
+         |
+         |stdout:
+         |$out
+         |
+         |stderr:
+         |$err
+         |""".stripMargin
+    }
   }
 
   /** An [[Impl.eval]] that is prepared for execution but haven't been executed yet. Run it with [[run]]. */
@@ -66,7 +76,7 @@ object IntegrationTester {
       asTestValue(check),
       asTestValue(propagateEnv),
       asTestValue(shutdownGracePeriod)
-    ).map(tv => tv.copy(name = "eval." + tv.name))
+    )
   }
 
   trait Impl extends AutoCloseable with IntegrationTesterBase {
@@ -196,7 +206,7 @@ object IntegrationTester {
        * Returns the `.json` metadata file contents parsed into a [[Evaluator.Cached]]
        * object, containing both the value as JSON and the associated metadata (e.g. hashes)
        */
-      def cached: Cached = upickle.default.read[Cached](text)
+      def cached: Cached = upickle.read[Cached](text)
 
       /**
        * Returns the value as JSON
@@ -206,7 +216,7 @@ object IntegrationTester {
       /**
        * Returns the value parsed from JSON into a value of type [[T]]
        */
-      def value[T: upickle.default.Reader]: T = upickle.default.read[T](cached.value)
+      def value[T: upickle.Reader]: T = upickle.read[T](cached.value)
     }
 
     /**

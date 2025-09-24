@@ -1,6 +1,6 @@
 package mill.api
 
-import mill.api.shared.internal.{ModuleApi, internal}
+import mill.api.daemon.internal.{ModuleApi, internal}
 import mill.api.internal.{OverrideMapping, Reflect}
 import mill.api.Task.Simple
 
@@ -79,7 +79,8 @@ object Module {
         implicitly[ClassTag[T]].runtimeClass,
         filter,
         noParams = true,
-        Reflect.getMethods(_, scala.reflect.NameTransformer.decode)
+        (cls, noParams, inner) =>
+          Reflect.getMethods(cls, noParams, inner, scala.reflect.NameTransformer.decode)
       )
         .map(_.invoke(outer).asInstanceOf[T])
         .toSeq
@@ -92,7 +93,8 @@ object Module {
       Reflect.reflectNestedObjects02(
         outer.getClass,
         filter,
-        Reflect.getMethods(_, scala.reflect.NameTransformer.decode)
+        (cls, noParams, inner) =>
+          Reflect.getMethods(cls, noParams, inner, scala.reflect.NameTransformer.decode)
       )
         .map { case (getter = getter) => getter(outer) }
         .toSeq

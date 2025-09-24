@@ -76,7 +76,8 @@ class ExampleTester(
     millExecutable: os.Path,
     bashExecutable: String = ExampleTester.defaultBashExecutable(),
     val baseWorkspacePath: os.Path,
-    val propagateJavaHome: Boolean = true
+    val propagateJavaHome: Boolean = true,
+    val cleanupProcessIdFile: Boolean = true
 ) extends IntegrationTesterBase {
 
   def processCommandBlock(commandBlock: String): Unit = {
@@ -115,6 +116,7 @@ class ExampleTester(
 
     /** The command we're about to execute */
     val debugCommandStr = s"$workspacePath> $commandStr"
+    Console.err.println("\nRunning:")
     Console.err.println(debugCommandStr)
     Console.err.println(
       s"""--- Expected output ----------
@@ -148,6 +150,9 @@ class ExampleTester(
       check,
       debugCommandStr
     )
+
+    Console.err.println("Success:")
+    Console.err.println(debugCommandStr + "\n")
   }
 
   def validateEval(
@@ -225,7 +230,14 @@ class ExampleTester(
           ex.printStackTrace(System.err)
       }
     } finally {
-      if (daemonMode) processCommand(Vector(), "./mill shutdown", check = false)
+      if (daemonMode) {
+        if (!sys.env.contains("MILL_TEST_SHARED_OUTPUT_DIR")) {
+          processCommand(Vector(), "./mill shutdown", check = false)
+        } else {
+          processCommand(Vector(), "./mill clean", check = false)
+        }
+      }
+
       removeProcessIdFile()
     }
   }

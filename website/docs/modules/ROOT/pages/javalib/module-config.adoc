@@ -2,13 +2,14 @@
 :page-aliases: Java_Module_Config.adoc
 :language: Java
 :language-small: java
+:language-doc: javadoc
 
 This page goes into more detail about the various configuration options
 for `JavaModule`.
 
 Many of the APIs covered here are listed in the API documentation:
 
-* {mill-doc-url}/api/latest/mill/scalalib/JavaModule.html[mill.javalib.JavaModule]
+* {mill-doc-url}/api/latest/mill/javalib/JavaModule.html[mill.javalib.JavaModule]
 
 == Common Configuration Overrides
 

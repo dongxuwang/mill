@@ -2,10 +2,9 @@ package mill.bsp.worker
 
 import ch.epfl.scala.bsp4j._
 import ch.epfl.scala.{bsp4j => bsp}
-import mill.api.shared.internal.{CompileProblemReporter, Problem}
+import mill.api.daemon.internal.{CompileProblemReporter, Problem}
 
 import scala.collection.mutable
-import scala.jdk.CollectionConverters.*
 import scala.util.chaining.scalaUtilChainingOps
 
 /**
@@ -89,9 +88,9 @@ private class BspCompileProblemReporter(
         // instead of sending a `build/publishDiagnostics` we send a `build/logMessage`.
         // see https://github.com/com-lihaoyi/mill/issues/2926
         val messagesType = problem.severity match {
-          case mill.api.shared.internal.Error => MessageType.ERROR
-          case mill.api.shared.internal.Warn => MessageType.WARNING
-          case mill.api.shared.internal.Info => MessageType.INFO
+          case mill.api.daemon.internal.Error => MessageType.ERROR
+          case mill.api.daemon.internal.Warn => MessageType.WARNING
+          case mill.api.daemon.internal.Info => MessageType.INFO
         }
         val msgParam = new LogMessageParams(messagesType, problem.message).tap { it =>
           it.setTask(taskId)
@@ -133,9 +132,9 @@ private class BspCompileProblemReporter(
       d.setSource("mill")
       d.setSeverity(
         problem.severity match {
-          case mill.api.shared.internal.Info => bsp.DiagnosticSeverity.INFORMATION
-          case mill.api.shared.internal.Error => bsp.DiagnosticSeverity.ERROR
-          case mill.api.shared.internal.Warn => bsp.DiagnosticSeverity.WARNING
+          case mill.api.daemon.internal.Info => bsp.DiagnosticSeverity.INFORMATION
+          case mill.api.daemon.internal.Error => bsp.DiagnosticSeverity.ERROR
+          case mill.api.daemon.internal.Warn => bsp.DiagnosticSeverity.WARNING
         }
       )
       problem.diagnosticCode.foreach { existingCode =>
@@ -186,13 +185,15 @@ private class BspCompileProblemReporter(
     client.onBuildTaskStart(taskStartParams)
   }
 
-  override def notifyProgress(percentage: Long, total: Long): Unit = {
+  override def notifyProgress(progress: Long, total: Long): Unit = {
     val params = new TaskProgressParams(taskId).tap { it =>
       it.setEventTime(System.currentTimeMillis())
       it.setData(new CompileTask(targetId))
       it.setDataKind("compile-progress")
-      it.setMessage(s"Compiling target ${targetDisplayName} ($percentage%)")
-      it.setProgress(percentage)
+      it.setMessage(s"Compiling target ${targetDisplayName} (${progress * 100 / total}%)")
+      // Not a percentage, but the # of units done,
+      // see https://github.com/build-server-protocol/build-server-protocol/blob/bc6835d240b0810bcebe1738e7b71caa49b24f29/spec/src/main/resources/META-INF/smithy/bsp/bsp.smithy#L1150
+      it.setProgress(progress)
       it.setTotal(total)
     }
     client.onBuildTaskProgress(params)

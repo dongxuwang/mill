@@ -37,9 +37,9 @@ object JavaCompileJarTests extends TestSuite {
         //           resourceRoot ---->  jar
         //                                ^
         //           readmePath---------- |
-        def readme = Task.Source { readmePath }
-        def sourceRoot = Task.Sources { sourceRootPath }
-        def resourceRoot = Task.Sources { resourceRootPath }
+        def readme = Task.Source(readmePath)
+        def sourceRoot = Task.Sources(sourceRootPath)
+        def resourceRoot = Task.Sources(resourceRootPath)
         def allSources =
           Task { sourceRoot().flatMap(p => os.walk(p.path)).map(PathRef(_)) }
         def classFiles = Task { compileAll(allSources()) }
@@ -56,7 +56,7 @@ object JavaCompileJarTests extends TestSuite {
             Task.dest / "out.jar",
             Seq(classFiles().path, readme().path) ++ resourceRoot().map(_.path),
             JarManifest.MillDefault,
-            (p: os.Path, r: os.RelPath) => noFoos(r.last)
+            (_: os.Path, r: os.RelPath) => noFoos(r.last)
           )
           PathRef(jar)
         }
@@ -170,7 +170,7 @@ object JavaCompileJarTests extends TestSuite {
       ).call(evaluator.outPath).out.text()
       assert(executed == s"${31337 + 271828}${System.lineSeparator}")
 
-      for (i <- 0 until 3) {
+      for (_ <- 0 until 3) {
         // Build.run is not cached, so every time we eval it, it has to
         // re-evaluate
         val Right(result) = eval(Build.run("test.Foo")): @unchecked

@@ -1,8 +1,9 @@
 package build.core.api
 
+import com.github.lolgab.mill.mima.{DirectMissingMethodProblem, ProblemFilter}
 import mill.contrib.buildinfo.BuildInfo
-import mill._
-import mill.scalalib._
+import mill.*
+import mill.scalalib.*
 import millbuild.*
 
 /**
@@ -10,7 +11,7 @@ import millbuild.*
  * defining Tasks, Modules, helper code, and other related data structures.
  */
 object `package` extends MillStableScalaModule with BuildInfo {
-  def moduleDeps = Seq(build.core.api.shared)
+  def moduleDeps = Seq(build.core.api.daemon)
 
   def compileMvnDeps = Task {
     if (scalaVersion().startsWith("3.")) Seq(Deps.scalaCompiler(scalaVersion()))
@@ -48,4 +49,14 @@ object `package` extends MillStableScalaModule with BuildInfo {
     BuildInfo.Value("coursierJvmIndexVersion", Deps.coursierJvmIndexVersion)
   )
 
+  override def mimaBinaryIssueFilters: T[Seq[ProblemFilter]] =
+    super.mimaBinaryIssueFilters() ++ Seq(
+      // internal APIs
+      ProblemFilter.exclude[DirectMissingMethodProblem](
+        "mill.api.internal.Util.renderSecondsSuffix"
+      ),
+      ProblemFilter.exclude[DirectMissingMethodProblem](
+        "mill.api.internal.Util.renderSecondsSuffix$default$2"
+      )
+    )
 }

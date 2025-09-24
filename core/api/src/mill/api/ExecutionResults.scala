@@ -1,8 +1,11 @@
 package mill.api
 
 import mill.api.*
-import mill.api.shared.internal.{TaskApi, ExecutionResultsApi}
+import mill.api.daemon.internal.{TaskApi, ExecutionResultsApi}
 
+/**
+ * The output of executing tasks via an [[Evaluator]]
+ */
 trait ExecutionResults extends ExecutionResultsApi {
 
   /**
@@ -17,6 +20,10 @@ trait ExecutionResults extends ExecutionResultsApi {
   def transitiveResults: Map[Task[?], ExecResult[Val]]
   private[mill] def transitiveResultsApi: Map[TaskApi[?], ExecResult[Val]] =
     transitiveResults.asInstanceOf[Map[TaskApi[?], ExecResult[Val]]]
+
+  def transitivePrefixes: Map[Task[?], Seq[String]] = Map()
+  private[mill] override def transitivePrefixesApi: Map[TaskApi[?], Seq[String]] =
+    transitivePrefixes.asInstanceOf[Map[TaskApi[?], Seq[String]]]
 
   /**
    * The tasks that were executed without being read from cache

@@ -8,7 +8,7 @@ import java.net.URL
 import coursier.core.compatibility.xmlParseDom
 import coursier.maven.Pom
 import mill.api.{TaskCtx as _, *}
-import mill.api.shared.internal.{
+import mill.api.daemon.internal.{
   EvaluatorApi,
   ExecutionResultsApi,
   JavaModuleApi,
@@ -19,7 +19,7 @@ import mill.api.shared.internal.{
   TaskApi,
   TestModuleApi
 }
-import mill.api.shared.internal.idea.{Element, IdeaConfigFile, JavaFacet, ResolvedModule}
+import mill.api.daemon.internal.idea.{Element, IdeaConfigFile, JavaFacet, ResolvedModule}
 import mill.util.BuildInfo
 import os.SubPath
 
@@ -631,6 +631,8 @@ class GenIdeaImpl(
       compilerBridgeJar: Option[os.Path],
       scaladocExtraClasspath: Seq[os.Path]
   ): Elem = {
+    val _ = scaladocExtraClasspath // unused for now
+
     <component name="libraryTable">
       <library name={name} type="Scala">
         <properties>

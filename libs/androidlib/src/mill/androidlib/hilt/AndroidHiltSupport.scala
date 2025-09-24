@@ -2,10 +2,9 @@ package mill.androidlib.hilt
 
 import mill.androidlib.AndroidKotlinModule
 import mill.api.{ModuleRef, PathRef}
-import mill.kotlinlib.DepSyntax
 import mill.kotlinlib.ksp.KspModule
-import mill.scalalib.Dep
-import mill.jvmlib.api.CompilationResult
+import mill.javalib.Dep
+import mill.javalib.api.CompilationResult
 import mill.{T, Task}
 
 /**
@@ -16,36 +15,22 @@ import mill.{T, Task}
  * for pre-processing the Hilt annotations and generating the necessary classes for Hilt to work, then
  * compiles all the sources together with a Java pre-processor step and finally a transform ASM step
  * to achieve the compile time dependency injection!
+ *
+ * Usage:
+ * ```
+ * object app extends AndroidHiltSupport { ... }
+ * ```
  */
 @mill.api.experimental
-trait AndroidHiltSupport extends KspModule with AndroidKotlinModule {
+trait AndroidHiltSupport extends KspModule, AndroidKotlinModule {
 
-  override def kspClasspath: T[Seq[PathRef]] =
-    super.kspClasspath()
-
-  def androidHiltProcessorPath: T[Seq[PathRef]] = Task {
-    defaultResolver().classpath(
-      kotlinSymbolProcessors().flatMap {
-        dep =>
-          if (dep.dep.module.name.value == "hilt-android-compiler")
-            Seq(
-              dep,
-              mvn"com.google.dagger:hilt-compiler:${dep.version}"
-            )
-          else
-            Seq(dep)
-      }
+  override def kspProcessorOptions: T[Map[String, String]] = Task {
+    super.kspProcessorOptions() ++ Map(
+      "dagger.fastInit" -> "enabled",
+      "dagger.hilt.android.internal.disableAndroidSuperclassValidation" -> "true",
+      "dagger.hilt.android.internal.projectType" -> "APP",
+      "dagger.hilt.internal.useAggregatingRootProcessor" -> "true"
     )
-  }
-
-  override def kspPluginParameters: T[Seq[String]] = Task {
-    super.kspPluginParameters() ++
-      Seq(
-        s"apoption=dagger.fastInit=enabled",
-        s"apoption=dagger.hilt.android.internal.disableAndroidSuperclassValidation=true",
-        s"apoption=dagger.hilt.android.internal.projectType=APP",
-        s"apoption=dagger.hilt.internal.useAggregatingRootProcessor=true"
-      )
   }
 
   def androidHiltModule: ModuleRef[AndroidHiltTransform] = ModuleRef(AndroidHiltTransform)
@@ -65,7 +50,30 @@ trait AndroidHiltSupport extends KspModule with AndroidKotlinModule {
   }
 
   def hiltProcessorClasspath: T[Seq[PathRef]] = Task {
-    kspApClasspath() ++ kspClasspath()
+    kotlinSymbolProcessorsResolved() ++ kspClasspath()
+  }
+
+  override def kotlinSymbolProcessorsResolved: T[Seq[PathRef]] = Task {
+    kspDependencyResolver().classpath(
+      kotlinSymbolProcessors()
+    )
+  }
+
+  override def androidProguard: T[PathRef] = Task {
+    val inheritedProguardFile = super.androidProguard()
+
+    val hiltContent: String =
+      """
+        |# Keep any class annotated with @HiltAndroidApp, @AndroidEntryPoint, etc.
+        |-keep @dagger.hilt.android.HiltAndroidApp class * { *; }
+        |-keep @dagger.hilt.android.AndroidEntryPoint class * { *; }
+        |""".stripMargin
+
+    val globalProguard = Task.dest / "global-proguard.pro"
+    os.write(globalProguard, os.read(inheritedProguardFile.path))
+    os.write.append(globalProguard, hiltContent)
+    os.write.append(globalProguard, androidProviderProguardConfigRules().mkString("\n"))
+    PathRef(globalProguard)
   }
 
 }

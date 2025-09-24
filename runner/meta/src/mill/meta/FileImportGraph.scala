@@ -1,9 +1,9 @@
 package mill.meta
 
-import mill.api.internal.internal
+import mill.api.daemon.internal.internal
 import mill.constants.CodeGenConstants.*
 import mill.constants.OutFiles.*
-import mill.api.shared.internal.MillScalaParser
+import mill.api.daemon.internal.MillScalaParser
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.CollectionHasAsScala
 import mill.internal.Util.backtickWrap
@@ -32,7 +32,7 @@ case class FileImportGraph(
 object FileImportGraph {
 
   import mill.api.JsonFormatters.pathReadWrite
-  implicit val readWriter: upickle.default.ReadWriter[FileImportGraph] = upickle.default.macroRW
+  implicit val readWriter: upickle.ReadWriter[FileImportGraph] = upickle.macroRW
 
   /**
    * We perform a depth-first traversal of the import graph of `.sc` files,
@@ -91,7 +91,6 @@ object FileImportGraph {
       } catch {
         case ex: Throwable =>
           seenScripts(s) = ""
-          pprint.log(ex.getStackTrace.mkString("\n"))
           errors.append(ex.getClass.getName + " " + ex.getMessage)
       }
 
@@ -131,13 +130,13 @@ object FileImportGraph {
         (false, multiple.head)
     }
 
-    (dummy, foundRootBuildFileName)
+    (dummy = dummy, foundRootBuildFileName = foundRootBuildFileName)
   }
 
   def walkBuildFiles(projectRoot: os.Path, output: os.Path): Seq[os.Path] = {
     if (!os.exists(projectRoot)) Nil
     else {
-      val (dummy, foundRootBuildFileName) = findRootBuildFiles(projectRoot)
+      val foundRootBuildFileName = findRootBuildFiles(projectRoot).foundRootBuildFileName
 
       val buildFileExtension =
         buildFileExtensions.asScala.find(ex => foundRootBuildFileName.endsWith(s".$ex")).get

@@ -60,7 +60,7 @@ trait KtlintModule extends JavaModule {
   }
 }
 
-object KtlintModule extends ExternalModule with KtlintModule with TaskModule {
+object KtlintModule extends ExternalModule with KtlintModule with DefaultTaskModule {
   override def defaultTask(): String = "reformatAll"
 
   lazy val millDiscover = Discover[this.type]
@@ -121,7 +121,9 @@ object KtlintModule extends ExternalModule with KtlintModule with TaskModule {
     args ++= configArgument
     args ++= formatArgument
     args ++= filesToFormat.map(_.path)
+      // skip formatting single-file projects since Palantir Format messes up the header block
       .filter(f => os.exists(f) && (f.ext == "kt" || f.ext == "kts"))
+      .filter(!os.read(_).startsWith("//|"))
       .map(_.toString())
 
     val exitCode = BuildCtx.withFilesystemCheckerDisabled {

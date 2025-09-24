@@ -26,8 +26,8 @@ import dotty.tools.dotc.util.SourceFile
 import dotty.tools.dotc.util.Spans.Span
 import dotty.tools.dotc.util.SourcePosition
 
-import mill.api.shared.internal.MillScalaParser
-import mill.api.shared.internal.MillScalaParser.{ObjectData, Snip}
+import mill.api.daemon.internal.MillScalaParser
+import mill.api.daemon.internal.MillScalaParser.{ObjectData, Snip}
 
 object MillScalaParserImpl extends MillScalaParser {
 
@@ -318,7 +318,7 @@ object MillScalaParserImpl extends MillScalaParser {
     buf.result()
   }
 
-  private def validSpan(sourcePos: SourcePosition)(using Context): Boolean =
+  private def validSpan(sourcePos: SourcePosition): Boolean =
     sourcePos.span.exists && !sourcePos.span.isSynthetic
 
   private def slice(start: Int, end: Int)(using Context): String =

@@ -3,7 +3,7 @@ package mill.contrib.gitlab
 import mill.T
 import mill.api.ExecResult.Failure
 import mill.api.Discover
-import mill.scalalib.publish.PomSettings
+import mill.javalib.publish.PomSettings
 import mill.testkit.UnitTester
 import mill.testkit.TestRootModule
 import utest.{TestSuite, Tests, assertMatch, test}
@@ -11,7 +11,7 @@ import mill.util.TokenReaders._
 object GitlabModuleTests extends TestSuite {
 
   val emptyLookup = new GitlabTokenLookup {
-    override def tokenSearchOrder = Seq.empty
+    override def tokenSearchOrder = Seq()
   }
 
   object GitlabModule extends TestRootModule with GitlabPublishModule {

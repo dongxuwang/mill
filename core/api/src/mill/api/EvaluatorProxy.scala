@@ -1,8 +1,8 @@
 package mill.api
 
 import mill.api.*
-import mill.api.shared.*
-import mill.api.shared.internal.*
+import mill.api.daemon.*
+import mill.api.daemon.internal.*
 import mill.api.internal.*
 
 final class EvaluatorProxy(var delegate0: () => Evaluator) extends Evaluator {
@@ -28,6 +28,20 @@ final class EvaluatorProxy(var delegate0: () => Evaluator) extends Evaluator {
       resolveToModuleTasks: Boolean
   ): mill.api.Result[List[Segments]] = {
     delegate.resolveSegments(
+      scriptArgs,
+      selectMode,
+      allowPositionalCommandArgs,
+      resolveToModuleTasks
+    )
+  }
+
+  override private[mill] def resolveRaw(
+      scriptArgs: Seq[String],
+      selectMode: SelectMode,
+      allowPositionalCommandArgs: Boolean,
+      resolveToModuleTasks: Boolean
+  ): mill.api.Result[List[Resolved]] = {
+    delegate.resolveRaw(
       scriptArgs,
       selectMode,
       allowPositionalCommandArgs,

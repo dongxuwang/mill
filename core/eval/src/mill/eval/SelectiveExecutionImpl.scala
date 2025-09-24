@@ -1,6 +1,6 @@
 package mill.eval
 
-import mill.api.shared.internal.TestReporter
+import mill.api.daemon.internal.TestReporter
 import mill.api.{ExecResult, Result, Val}
 import mill.constants.OutFiles
 import mill.api.SelectiveExecution.ChangedTasks
@@ -76,7 +76,7 @@ private[mill] class SelectiveExecutionImpl(evaluator: Evaluator)
   def saveMetadata(metadata: SelectiveExecution.Metadata): Unit = {
     os.write.over(
       evaluator.outPath / OutFiles.millSelectiveExecution,
-      upickle.default.write(metadata, indent = 2)
+      upickle.write(metadata, indent = 2)
     )
   }
 
@@ -111,7 +111,7 @@ private[mill] class SelectiveExecutionImpl(evaluator: Evaluator)
     if (oldMetadataTxt == "") None
     else Some {
       val transitiveNamed = PlanImpl.transitiveNamed(tasks)
-      val oldMetadata = upickle.default.read[SelectiveExecution.Metadata](oldMetadataTxt)
+      val oldMetadata = upickle.read[SelectiveExecution.Metadata](oldMetadataTxt)
       val (changedRootTasks, downstreamTasks) =
         evaluator.selective.computeDownstream(
           transitiveNamed,
@@ -160,7 +160,7 @@ private[mill] class SelectiveExecutionImpl(evaluator: Evaluator)
         interGroupDeps.toSeq.sortBy(_._1.toString) // sort to ensure determinism
       )
 
-      val (vertexToIndex, edgeIndices) =
+      val ( /*vertexToIndex*/ _, edgeIndices) =
         SpanningForest.graphMapToIndices(indexToTerminal, reverseInterGroupDeps)
 
       val json = SpanningForest.writeJson(
@@ -216,7 +216,8 @@ object SelectiveExecutionImpl {
             reporter = _ => None,
             testReporter = TestReporter.DummyTestReporter,
             workspace = evaluator.workspace,
-            systemExit = n => ???,
+            _systemExitWithReason = (reason, exitCode) =>
+              throw Exception(s"systemExit called: reason=$reason, exitCode=$exitCode"),
             fork = null,
             jobs = evaluator.effectiveThreadCount,
             offline = evaluator.offline

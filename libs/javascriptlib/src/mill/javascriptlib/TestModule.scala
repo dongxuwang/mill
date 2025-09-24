@@ -3,7 +3,7 @@ package mill.javascriptlib
 import mill.*
 import mill.api.BuildCtx
 
-trait TestModule extends TaskModule {
+trait TestModule extends DefaultTaskModule {
   import TestModule.TestResult
 
   def testForked(args: String*): Command[TestResult] =
@@ -32,7 +32,10 @@ object TestModule {
 
     private[TestModule] def runCoverage: T[TestResult]
 
-    protected def coverageTask(args: Task[Seq[String]]): Task[TestResult] = Task { runCoverage() }
+    protected def coverageTask(args: Task[Seq[String]]): Task[TestResult] = Task.Anon {
+      val _ = args // silence unused parameter warning
+      runCoverage()
+    }
 
     def coverage(args: String*): Command[TestResult] =
       Task.Command {

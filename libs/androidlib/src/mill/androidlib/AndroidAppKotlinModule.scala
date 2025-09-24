@@ -1,9 +1,10 @@
 package mill.androidlib
 
+import coursier.params.ResolutionParams
 import mill.api.{ModuleRef, PathRef, Task}
 import mill.kotlinlib.{Dep, DepSyntax}
-import mill.scalalib.TestModule.Junit5
-import mill.scalalib.{JavaModule, TestModule}
+import mill.javalib.TestModule.Junit5
+import mill.javalib.{JavaModule, TestModule}
 import mill.*
 import mill.api.JsonFormatters.given
 import mill.androidlib.Versions
@@ -23,28 +24,20 @@ import mill.androidlib.Versions
  * [[https://developer.android.com/studio Android Studio Documentation]]
  */
 @mill.api.experimental
-trait AndroidAppKotlinModule extends AndroidKotlinModule with AndroidAppModule { outer =>
+trait AndroidAppKotlinModule extends AndroidKotlinModule, AndroidAppModule { outer =>
 
   private def kotlinSources = Task.Sources("src/main/kotlin")
   override def sources: T[Seq[PathRef]] =
     super[AndroidAppModule].sources() ++ kotlinSources()
 
-  trait AndroidAppKotlinTests extends AndroidAppKotlinModule with AndroidAppTests {
-    override def kotlinVersion: T[String] = outer.kotlinVersion
+  trait AndroidAppKotlinTests extends AndroidKotlinTestModule
 
-    private def kotlinSources = Task.Sources("src/test/kotlin")
-
-    override def sources: T[Seq[PathRef]] =
-      super[AndroidAppTests].sources() ++ kotlinSources()
-
-    override def kotlincPluginMvnDeps: T[Seq[Dep]] = outer.kotlincPluginMvnDeps()
-  }
-
-  trait AndroidAppKotlinInstrumentedTests extends AndroidAppKotlinModule
-      with AndroidAppInstrumentedTests {
+  trait AndroidAppKotlinInstrumentedTests extends AndroidAppInstrumentedTests,
+        AndroidAppKotlinModule {
 
     override final def kotlinVersion: T[String] = outer.kotlinVersion
     override final def androidSdkModule: ModuleRef[AndroidSdkModule] = outer.androidSdkModule
+    override def resolutionParams: Task[ResolutionParams] = Task.Anon(outer.resolutionParams())
 
     private def kotlinSources = Task.Sources("src/androidTest/kotlin")
 
@@ -55,12 +48,13 @@ trait AndroidAppKotlinModule extends AndroidKotlinModule with AndroidAppModule {
 
   }
 
-  trait AndroidAppKotlinScreenshotTests extends AndroidAppKotlinModule with TestModule with Junit5 {
-
-    /* There are no testclasses for screenshot tests, just the engine running a diff over the images */
-    override def discoveredTestClasses: T[Seq[String]] = Task { Seq.empty[String] }
+  trait AndroidAppKotlinScreenshotTests extends AndroidAppKotlinModule, TestModule, Junit5 {
 
     override def androidApplicationId: String = outer.androidApplicationId
+
+    override def discoveredTestClasses: T[Seq[String]] = Task {
+      super[TestModule].discoveredTestClasses()
+    }
 
     /**
      * Screenshot tests cannot be run in parallel for now
@@ -209,7 +203,7 @@ trait AndroidAppKotlinModule extends AndroidKotlinModule with AndroidAppModule {
         resourceApkPath = resourceApkPath().path.toString(),
         resultsFilePath = resultsFilePath.toString()
       )
-      os.write(cliArgsFile, upickle.default.write(cliArgs))
+      os.write(cliArgsFile, upickle.write(cliArgs))
 
       PathRef(cliArgsFile)
 
@@ -285,7 +279,7 @@ trait AndroidAppKotlinModule extends AndroidKotlinModule with AndroidAppModule {
       )
       os.write(
         androidDiscoveredPreviewsPath,
-        upickle.default.write(Map("screenshots" -> screenshotConfigurations))
+        upickle.write(Map("screenshots" -> screenshotConfigurations))
       )
 
       (

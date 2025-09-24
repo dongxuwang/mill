@@ -7,11 +7,11 @@ import mill.{Command, Module, Task}
 
 import scala.util.{Failure, Success, Try, Using}
 
-private[mill] object InitModule extends ExternalModule with InitModule {
+object InitModule extends ExternalModule with InitModule {
   lazy val millDiscover = Discover[this.type]
 }
 
-private[mill] trait InitModule extends Module {
+trait InitModule extends Module {
 
   type ExampleUrl = String
   type ExampleId = String
@@ -102,9 +102,9 @@ private[mill] trait InitModule extends Module {
     }
   private def usingExamples[T](fun: Seq[(ExampleId, ExampleUrl)] => T): Try[T] =
     Using(getClass.getClassLoader.getResourceAsStream("exampleList.txt")) { exampleList =>
-      val reader = upickle.default.reader[Seq[(ExampleId, ExampleUrl)]]
+      val reader = upickle.reader[Seq[(ExampleId, ExampleUrl)]]
       val exampleNames: Seq[(ExampleId, ExampleUrl)] =
-        upickle.default.read(exampleList)(using reader)
+        upickle.read(exampleList)(using reader)
       fun(exampleNames)
     }
 }

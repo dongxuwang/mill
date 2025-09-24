@@ -4,7 +4,8 @@ import scala.collection.mutable
 
 /**
  * Macro to walk the module tree and generate `mainargs` entrypoints for any
- * `Task.Command` methods that it finds.
+ * `Task.Command` methods that it finds. Needs to be provided for every
+ * [[ExternalModule]] that you define.
  *
  * Note that unlike the rest of Mill's module-handling logic which uses Java
  * reflection, generation of entrypoints requires typeclass resolution, and so
@@ -81,28 +82,6 @@ object Discover {
         case ByNameType(tpe) => tpe
         case _ => tpe
 
-      def assertParamListCounts(
-          curCls: TypeRepr,
-          methods: Iterable[Symbol],
-          cases: (TypeRepr, Int, String)*
-      ): Unit = {
-        for (m <- methods.toList) {
-          cases
-            .find { case (tt, n, label) =>
-              val mType = curCls.memberType(m)
-              val returnType = methodReturn(mType)
-              returnType <:< tt && !(returnType <:< TypeRepr.of[Nothing])
-            }
-            .foreach { case (tt, n, label) =>
-
-              if (m.paramSymss.length != n) report.errorAndAbort(
-                s"$label definition `$m` must have $n parameter list" + (if (n == 1) "" else "s"),
-                m.pos.getOrElse(Position.ofMacroExpansion)
-              )
-            }
-        }
-      }
-
       def filterDefs(methods: List[Symbol]): List[Symbol] =
         methods.filterNot { m =>
           m.isSuperAccessor
@@ -129,12 +108,6 @@ object Discover {
       val mapping: Seq[(TypeRepr, (Seq[scala.quoted.Expr[mainargs.MainData[?, ?]]], Seq[String]))] =
         for (curCls <- seen.toSeq.sortBy(_.typeSymbol.fullName)) yield {
           val declMethods = filterDefs(curCls.typeSymbol.declaredMethods)
-          assertParamListCounts(
-            curCls,
-            declMethods,
-            (TypeRepr.of[Task.Command[?]], 1, "`Task.Command`"),
-            (TypeRepr.of[Task.Simple[?]], 0, "Task")
-          )
 
           val names =
             sortedMethods(
@@ -144,6 +117,7 @@ object Discover {
             ).map(_.name)
           val entryPoints = for {
             m <- sortedMethods(curCls, sub = TypeRepr.of[Task.Command[?]], declMethods)
+            if m.paramSymss.length == 1
           } yield curCls.asType match {
             case '[t] =>
               val expr =

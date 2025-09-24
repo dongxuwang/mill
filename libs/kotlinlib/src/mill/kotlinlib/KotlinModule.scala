@@ -10,18 +10,24 @@ import coursier.core.VariantSelector.VariantMatcher
 import coursier.params.ResolutionParams
 import mill.api.Result
 import mill.api.ModuleRef
-import mill.kotlinlib.worker.api.{KotlinWorker, KotlinWorkerTarget}
-import mill.jvmlib.api.{CompilationResult, JvmWorkerApi}
-import mill.api.shared.internal.{CompileProblemReporter, internal}
-import mill.scalalib.{JavaModule, JvmWorkerModule, Lib}
-import mill.util.Jvm
+import mill.kotlinlib.worker.api.KotlinWorkerTarget
+import mill.javalib.api.CompilationResult
+import mill.javalib.api.JvmWorkerApi as PublicJvmWorkerApi
+import mill.javalib.api.internal.JvmWorkerApi
+import mill.api.daemon.internal.{CompileProblemReporter, KotlinModuleApi, internal}
+import mill.javalib.{JavaModule, JvmWorkerModule, Lib}
+import mill.util.{Jvm, Version}
 import mill.*
+
 import java.io.File
-
 import mainargs.Flag
-import mill.api.shared.internal.bsp.{BspBuildTarget, BspModuleApi}
+import mill.api.daemon.internal.bsp.{BspBuildTarget, BspModuleApi}
+import mill.javalib.api.internal.{JavaCompilerOptions, ZincCompileJava}
 
-trait KotlinModule extends JavaModule { outer =>
+/**
+ * Core configuration required to compile a single Kotlin module
+ */
+trait KotlinModule extends JavaModule with KotlinModuleApi { outer =>
 
   /**
    * The Kotlin version to be used (for API and Language level settings).
@@ -128,19 +134,27 @@ trait KotlinModule extends JavaModule { outer =>
     val isOldKotlin = Seq("1.0.", "1.1.", "1.2.0", "1.2.1", "1.2.2", "1.2.3", "1.2.4")
       .exists(prefix => kv.startsWith(prefix))
 
-    val compilerDep = if (useEmbeddable) {
-      mvn"org.jetbrains.kotlin:kotlin-compiler-embeddable:${kv}"
-    } else {
-      mvn"org.jetbrains.kotlin:kotlin-compiler:${kv}"
-    }
+    val compilerDep =
+      if (useEmbeddable) mvn"org.jetbrains.kotlin:kotlin-compiler-embeddable:${kv}"
+      else mvn"org.jetbrains.kotlin:kotlin-compiler:${kv}"
 
-    val scriptCompilerDep = if (useEmbeddable) {
-      mvn"org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:${kv}"
-    } else {
-      mvn"org.jetbrains.kotlin:kotlin-scripting-compiler:${kv}"
-    }
+    val btApiDeps = when(kotlincUseBtApi())(
+      mvn"org.jetbrains.kotlin:kotlin-build-tools-api:$kv",
+      mvn"org.jetbrains.kotlin:kotlin-build-tools-impl:$kv"
+    )
 
-    Seq(compilerDep) ++ when(!isOldKotlin)(scriptCompilerDep)
+    val scriptCompilerDeps: Seq[Dep] = when(!isOldKotlin)(
+      (if (useEmbeddable) Seq(
+         mvn"org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:${kv}"
+       )
+       else Seq(
+         mvn"org.jetbrains.kotlin:kotlin-scripting-compiler:${kv}",
+         mvn"org.jetbrains.kotlin:kotlin-scripting-compiler-impl:${kv}",
+         mvn"org.jetbrains.kotlin:kotlin-scripting-jvm:$kv"
+       ))*
+    )
+
+    Seq(compilerDep) ++ btApiDeps ++ scriptCompilerDeps
   }
 
   /**
@@ -178,14 +192,12 @@ trait KotlinModule extends JavaModule { outer =>
   }
 
   /**
-   * The documentation jar, containing all the Dokka HTML files, for
+   * The generated documentation, containing all the Dokka HTML files, for
    * publishing to Maven Central. You can control Dokka version by using [[dokkaVersion]]
    * and option by using [[dokkaOptions]].
    */
-  override def docJar: T[PathRef] = Task[PathRef] {
-    val outDir = Task.dest
-
-    val dokkaDir = outDir / "dokka"
+  def dokkaGenerated: T[PathRef] = Task[PathRef] {
+    val dokkaDir = Task.dest / "dokka"
     os.makeDir.all(dokkaDir)
 
     val files = Lib.findSourceFiles(docSources(), Seq("java", "kt"))
@@ -229,7 +241,16 @@ trait KotlinModule extends JavaModule { outer =>
       )
     }
 
-    PathRef(Jvm.createJar(outDir / "out.jar", Seq(dokkaDir)))
+    PathRef(dokkaDir)
+  }
+
+  /**
+   * The documentation jar, containing all the Dokka HTML files, for
+   * publishing to Maven Central. You can control Dokka version by using [[dokkaVersion]]
+   * and option by using [[dokkaOptions]].
+   */
+  override def docJar: T[PathRef] = Task[PathRef] {
+    PathRef(Jvm.createJar(Task.dest / "out.jar", Seq(dokkaGenerated().path)))
   }
 
   /**
@@ -301,7 +322,7 @@ trait KotlinModule extends JavaModule { outer =>
         )
         // The compile step is lazy, but its dependencies are not!
         internalCompileJavaFiles(
-          worker = jvmWorkerRef().worker(),
+          worker = jvmWorkerRef().internalWorker(),
           upstreamCompileOutput = updateCompileOutput,
           javaSourceFiles = javaSourceFiles,
           compileCp = compileCp,
@@ -313,9 +334,11 @@ trait KotlinModule extends JavaModule { outer =>
       }
 
       if (isMixed || isKotlin) {
+        val extra = if (isJava) s"and reading ${javaSourceFiles.size} Java sources " else ""
         ctx.log.info(
-          s"Compiling ${kotlinSourceFiles.size} Kotlin sources to ${classes} ..."
+          s"Compiling ${kotlinSourceFiles.size} Kotlin sources ${extra}to ${classes} ..."
         )
+
         val compilerArgs: Seq[String] = Seq(
           // destdir
           Seq("-d", classes.toString()),
@@ -331,14 +354,17 @@ trait KotlinModule extends JavaModule { outer =>
             "-Xexplicit-api=strict"
           ),
           allKotlincOptions(),
-          extraKotlinArgs,
-          // parameters
-          (kotlinSourceFiles ++ javaSourceFiles).map(_.toString())
+          extraKotlinArgs
         ).flatten
 
         val workerResult =
           KotlinWorkerManager.kotlinWorker().withValue(kotlinCompilerClasspath()) {
-            _.compile(KotlinWorkerTarget.Jvm, compilerArgs)
+            _.compile(
+              target = KotlinWorkerTarget.Jvm,
+              useBtApi = kotlincUseBtApi(),
+              args = compilerArgs,
+              sources = kotlinSourceFiles ++ javaSourceFiles
+            )
           }
 
         val analysisFile = dest / "kotlin.analysis.dummy"
@@ -366,6 +392,15 @@ trait KotlinModule extends JavaModule { outer =>
    * Additional Kotlin compiler options to be used by [[compile]].
    */
   def kotlincOptions: T[Seq[String]] = Task { Seq.empty[String] }
+
+  /**
+   * Enable use of new Kotlin Build API (Beta).
+   * Enabled by default for Kotlin 2.1+ for JVM.
+   */
+  def kotlincUseBtApi: T[Boolean] = Task {
+    Version.parse(kotlinVersion())
+      .isNewerThan(Version.parse("2.1.0"))(using Version.IgnoreQualifierOrdering)
+  }
 
   /**
    * Mandatory command-line options to pass to the Kotlin compiler
@@ -399,16 +434,20 @@ trait KotlinModule extends JavaModule { outer =>
       javacOptions: Seq[String],
       compileProblemReporter: Option[CompileProblemReporter],
       reportOldProblems: Boolean
-  )(implicit ctx: JvmWorkerApi.Ctx): Result[CompilationResult] = {
+  )(implicit ctx: PublicJvmWorkerApi.Ctx): Result[CompilationResult] = {
+    val jOpts = JavaCompilerOptions(javacOptions)
     worker.compileJava(
-      upstreamCompileOutput = upstreamCompileOutput,
-      sources = javaSourceFiles,
-      compileClasspath = compileCp,
+      ZincCompileJava(
+        upstreamCompileOutput = upstreamCompileOutput,
+        sources = javaSourceFiles,
+        compileClasspath = compileCp,
+        javacOptions = jOpts.compiler,
+        incrementalCompilation = true
+      ),
       javaHome = javaHome,
-      javacOptions = javacOptions,
+      javaRuntimeOptions = jOpts.runtime,
       reporter = compileProblemReporter,
-      reportCachedProblems = reportOldProblems,
-      incrementalCompilation = true
+      reportCachedProblems = reportOldProblems
     )
   }
 
@@ -452,6 +491,7 @@ trait KotlinModule extends JavaModule { outer =>
     }
     override def kotlinUseEmbeddableCompiler: Task[Boolean] =
       Task.Anon { outer.kotlinUseEmbeddableCompiler() }
+    override def kotlincUseBtApi: Task.Simple[Boolean] = Task { outer.kotlincUseBtApi() }
   }
 
 }

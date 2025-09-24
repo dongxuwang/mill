@@ -1,5 +1,5 @@
 package mill.api.internal
-
+import mill.api.daemon.Watchable
 import mill.api.PathRef
 
 private[mill] object WatchSig {
@@ -10,7 +10,9 @@ private[mill] object WatchSig {
   def poll(w: Watchable): Long = w match {
     case Watchable.Path(p, quick, sig) =>
       new PathRef(os.Path(p), quick, sig, PathRef.Revalidate.Once).recomputeSig()
-    case Watchable.Value(f, _, _) => f()
+    case Watchable.Value(f, _, _) =>
+      try f()
+      catch { case _ => 0 }
   }
 
   def signature(w: Watchable): Long = w match {

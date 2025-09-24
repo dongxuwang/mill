@@ -1,6 +1,9 @@
 package mill.api
 
-enum CrossVersion derives upickle.default.ReadWriter {
+/**
+ * Models the different kinds of cross-versions supported by Mill for Scala dependencies.
+ */
+enum CrossVersion derives upickle.ReadWriter {
   import CrossVersion.*
 
   /** If true, the cross-version suffix should start with a platform suffix if it exists */
@@ -19,9 +22,9 @@ enum CrossVersion derives upickle.default.ReadWriter {
     val suffix = this match {
       case cross: Constant =>
         s"${firstSuffix}${cross.value}"
-      case cross: Binary =>
+      case _: Binary =>
         s"${firstSuffix}_${binaryVersion}"
-      case cross: Full =>
+      case _: Full =>
         s"${firstSuffix}_${fullVersion}"
     }
     require(!suffix.contains("/"), "Artifact suffix must not contain `/`s")

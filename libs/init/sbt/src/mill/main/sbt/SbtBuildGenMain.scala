@@ -1,7 +1,7 @@
 package mill.main.sbt
 
 import mainargs.{ParserForClass, arg, main}
-import mill.api.internal.internal
+import mill.api.daemon.internal.internal
 import mill.constants.Util
 import mill.main.buildgen.*
 import mill.main.buildgen.BuildGenUtil.*
@@ -139,7 +139,7 @@ object SbtBuildGenMain
     val buildExportPickled = os.read(workspace / "target" / "mill-init-build-export.json")
     // TODO This is mainly for debugging purposes. Comment out or uncomment this line as needed.
     // println("sbt build export retrieved: " + buildExportPickled)
-    import upickle.default.*
+    import upickle.*
     val buildExport = read[BuildExport](buildExportPickled)
 
     import scala.math.Ordering.Implicits.*
@@ -298,7 +298,9 @@ object SbtBuildGenMain
       pomParentArtifact = null, // not available
       resources = Nil,
       testResources = Nil,
-      publishProperties = Nil // not available in `sbt` as it seems
+      publishProperties = Nil, // not available in `sbt` as it seems
+      jvmId = cfg.shared.jvmId,
+      testForkDir = None
     )
   }
 

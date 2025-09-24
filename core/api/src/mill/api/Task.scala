@@ -2,13 +2,14 @@ package mill.api
 
 import mill.api.Logger
 import mill.api.Result
-import mill.api.shared.internal.CompileProblemReporter
-import mill.api.shared.internal.{NamedTaskApi, TaskApi, TestReporter}
+import mill.api.daemon.internal.CompileProblemReporter
+import mill.api.daemon.internal.{NamedTaskApi, TaskApi, TestReporter}
 import mill.api.internal.Applicative.Applyable
 import mill.api.internal.{Applicative, Cacher, NamedParameterOnlyDummy}
-import upickle.default.ReadWriter
-import upickle.default.Writer
+import upickle.ReadWriter
+import upickle.Writer
 
+import scala.annotation.{targetName, unused}
 import scala.language.implicitConversions
 import scala.quoted.*
 
@@ -148,7 +149,7 @@ object Task {
       inline ctx: mill.api.ModuleCtx
   ): os.Path = value match {
     // TODO: support "."
-    case str: String => ctx.millSourcePath / os.up / os.PathChunk.segmentsFromString(str)
+//    case str: String => ctx.millSourcePath / os.up / os.PathChunk.segmentsFromString(str)
     case sub: os.SubPath => ctx.millSourcePath / os.up / os.PathChunk.SubPathChunk(sub)
     case rel: os.RelPath => ctx.millSourcePath / os.up / os.PathChunk.RelPathChunk(rel)
     case p: os.Path => p
@@ -209,7 +210,7 @@ object Task {
    *                   runs.
    */
   def Command(
-      t: NamedParameterOnlyDummy = new NamedParameterOnlyDummy,
+      @unused t: NamedParameterOnlyDummy = new NamedParameterOnlyDummy,
       exclusive: Boolean = false,
       persistent: Boolean = false
   ): CommandFactory = new CommandFactory(exclusive = exclusive, persistent = persistent)
@@ -255,6 +256,15 @@ object Task {
   ): Simple[T] =
     ${ Macros.taskResultImpl[T]('t)('rw, 'ctx, '{ false }) }
 
+  // Overload of [[apply]] to improve type inference for `Task{ Nil }` and `Task { Seq() }`
+  @targetName("applySeq")
+  inline def apply[T](inline t: Result[Seq[T]])(implicit
+      inline rw: ReadWriter[Seq[T]],
+      inline ctx: mill.api.ModuleCtx
+  ): Simple[Seq[T]] = ${
+    Macros.taskResultImpl[Seq[T]]('t)('rw, 'ctx, '{ false })
+  }
+
   /**
    * Persistent tasks are defined using
    * the `Task(persistent = true){...}` syntax. The main difference is that while
@@ -269,7 +279,7 @@ object Task {
    * Violating that invariant can result in confusing mis-behaviors
    */
   def apply(
-      t: NamedParameterOnlyDummy = new NamedParameterOnlyDummy,
+      @unused t: NamedParameterOnlyDummy = new NamedParameterOnlyDummy,
       persistent: Boolean = false
   ): ApplyFactory = new ApplyFactory(persistent)
   class ApplyFactory private[mill] (val persistent: Boolean) {
@@ -331,9 +341,9 @@ object Task {
 
     val ctx: ModuleCtx = ctx0
 
-    def readWriterOpt: Option[upickle.default.ReadWriter[?]] = None
+    def readWriterOpt: Option[upickle.ReadWriter[?]] = None
 
-    def writerOpt: Option[upickle.default.Writer[?]] = readWriterOpt.orElse(None)
+    def writerOpt: Option[upickle.Writer[?]] = readWriterOpt.orElse(None)
   }
 
   class Computed[+T](
@@ -370,6 +380,14 @@ object Task {
     ): Simple[T] =
       ${ Macros.taskResultImpl[T]('{ Result.Success(t) })('rw, 'ctx, '{ false }) }
 
+    // Overload of [[create]] specialized to working on `Seq`s, to improve the type
+    // inference for `Task{ Nil }` or `Task{ Seq() }`
+    implicit inline def createSeq[T](inline t: Seq[T])(implicit
+        inline rw: ReadWriter[Seq[T]],
+        inline ctx: ModuleCtx
+    ): Simple[Seq[T]] =
+      ${ Macros.taskResultImpl[Seq[T]]('{ Result.Success(t) })('rw, 'ctx, '{ false }) }
+
     implicit inline def create[T](inline t: Result[T])(implicit
         inline rw: ReadWriter[T],
         inline ctx: ModuleCtx
@@ -379,7 +397,7 @@ object Task {
   }
 
   class Anon[T](
-      val inputs: Seq[Task[_]],
+      val inputs: Seq[Task[?]],
       evaluate0: (Seq[Any], mill.api.TaskCtx) => Result[T],
       enclosing: sourcecode.Enclosing
   ) extends Task[T] {
@@ -417,7 +435,7 @@ object Task {
   class Input[T](
       val evaluate0: (Seq[Any], mill.api.TaskCtx) => Result[T],
       val ctx0: mill.api.ModuleCtx,
-      val writer: upickle.default.Writer[?],
+      val writer: upickle.Writer[?],
       val isPrivate: Option[Boolean]
   ) extends Simple[T] {
     val inputs = Nil
@@ -433,7 +451,7 @@ object Task {
   ) extends Input[Seq[PathRef]](
         evaluate0,
         ctx0,
-        upickle.default.readwriter[Seq[PathRef]],
+        upickle.readwriter[Seq[PathRef]],
         isPrivate
       ) {}
 
@@ -444,7 +462,7 @@ object Task {
   ) extends Input[PathRef](
         evaluate0,
         ctx0,
-        upickle.default.readwriter[PathRef],
+        upickle.readwriter[PathRef],
         isPrivate
       ) {}
 
@@ -482,6 +500,7 @@ object Task {
         ctx: Expr[mill.api.ModuleCtx],
         persistent: Expr[Boolean]
     ): Expr[Simple[T]] = {
+      assertTaskShapeOwner("Task", 0)
       val expr = appImpl[Simple, T](
         (in, ev) =>
           '{ new Task.Computed[T]($in, $ev, $ctx, $rw, ${ taskIsPrivate() }, $persistent) },
@@ -498,22 +517,42 @@ object Task {
     )(
         ctx: Expr[mill.api.ModuleCtx]
     ): Expr[Simple[Seq[PathRef]]] = {
+      assertTaskShapeOwner("Task.Sources", 0)
       val expr = appImpl[Simple, Seq[PathRef]](
-        (in, ev) => '{ new Sources($ev, $ctx, ${ taskIsPrivate() }) },
+        ( /*in*/ _, ev) => '{ new Sources($ev, $ctx, ${ taskIsPrivate() }) },
         values,
         allowTaskReferences = false
       )
       Cacher.impl0(expr)
     }
 
+    def assertTaskShapeOwner(using
+        quotes: Quotes
+    )(typeName: String, expectedParamListCount: Int) = {
+      import quotes.reflect.*
+      val owner = sourcecode.Macros.actualOwner(Symbol.spliceOwner)
+      owner match {
+        case defSym
+            if defSym.isDefDef
+              && defSym.tree.asInstanceOf[DefDef].paramss.length == expectedParamListCount =>
+        case _ =>
+          val plural = if (expectedParamListCount == 1) "" else "s"
+          val err =
+            s"`$typeName` definition `$owner` must have $expectedParamListCount parameter list$plural"
+          owner.pos match {
+            case Some(p) => report.error(err, p)
+            case None => report.error(err)
+          }
+      }
+    }
     def sourceImpl(using
         Quotes
     )(value: Expr[Result[PathRef]])(
         ctx: Expr[mill.api.ModuleCtx]
     ): Expr[Simple[PathRef]] = {
-
+      assertTaskShapeOwner("Task.Source", 0)
       val expr = appImpl[Simple, PathRef](
-        (in, ev) => '{ new Source($ev, $ctx, ${ taskIsPrivate() }) },
+        ( /*in*/ _, ev) => '{ new Source($ev, $ctx, ${ taskIsPrivate() }) },
         value,
         allowTaskReferences = false
       )
@@ -524,12 +563,12 @@ object Task {
     def inputImpl[T: Type](using
         Quotes
     )(value: Expr[Result[T]])(
-        w: Expr[upickle.default.Writer[T]],
+        w: Expr[upickle.Writer[T]],
         ctx: Expr[mill.api.ModuleCtx]
     ): Expr[Simple[T]] = {
-
+      assertTaskShapeOwner("Task.Input", 0)
       val expr = appImpl[Simple, T](
-        (in, ev) => '{ new Input[T]($ev, $ctx, $w, ${ taskIsPrivate() }) },
+        ( /*in*/ _, ev) => '{ new Input[T]($ev, $ctx, $w, ${ taskIsPrivate() }) },
         value,
         allowTaskReferences = false
       )
@@ -544,6 +583,7 @@ object Task {
         exclusive: Expr[Boolean],
         persistent: Expr[Boolean]
     ): Expr[Command[T]] = {
+      assertTaskShapeOwner("Task.Command", 1)
       appImpl[Command, T](
         (in, ev) =>
           '{
@@ -566,7 +606,7 @@ object Task {
     )(t: Expr[Result[T]])(
         ctx: Expr[mill.api.ModuleCtx]
     ): Expr[Worker[T]] = {
-
+      assertTaskShapeOwner("Task.Worker", 0)
       val expr = appImpl[Worker, T](
         (in, ev) => '{ new Worker[T]($in, $ev, $ctx, ${ taskIsPrivate() }) },
         t

@@ -1,20 +1,21 @@
 package mill.meta
 
 import java.nio.file.Path
-
 import mill.api.BuildCtx
 import mill.*
 import mill.api.Result
-import mill.api.internal.internal
+import mill.api.daemon.internal.internal
 import mill.constants.CodeGenConstants.buildFileExtensions
 import mill.constants.OutFiles.*
 import mill.api.{Discover, PathRef, Task}
-import mill.api.internal.RootModule0
+import mill.api.internal.RootModule
 import mill.scalalib.{Dep, DepSyntax, Lib, ScalaModule}
-import mill.jvmlib.api.{CompilationResult, Versions}
-import mill.util.BuildInfo
-import mill.api.shared.internal.MillScalaParser
+import mill.javalib.api.{CompilationResult, Versions}
+import mill.util.{BuildInfo, MainRootModule}
+import mill.api.daemon.internal.MillScalaParser
 import mill.api.JsonFormatters.given
+import mill.javalib.api.internal.{JavaCompilerOptions, ZincCompileMixed}
+
 import scala.jdk.CollectionConverters.ListHasAsScala
 
 /**
@@ -26,7 +27,7 @@ import scala.jdk.CollectionConverters.ListHasAsScala
  */
 @internal
 trait MillBuildRootModule()(implicit
-    rootModuleInfo: RootModule0.Info
+    rootModuleInfo: RootModule.Info
 ) extends ScalaModule {
   override def bspDisplayName0: String = rootModuleInfo
     .projectRoot
@@ -206,7 +207,7 @@ trait MillBuildRootModule()(implicit
         ),
         prevTransitiveCallGraphHashesOpt = () =>
           Option.when(os.exists(Task.dest / "previous/transitiveCallGraphHashes0.json"))(
-            upickle.default.read[Map[String, Int]](
+            upickle.read[Map[String, Int]](
               os.read.stream(Task.dest / "previous/transitiveCallGraphHashes0.json")
             )
           )
@@ -241,7 +242,7 @@ trait MillBuildRootModule()(implicit
   }
 
   def compileMvnDeps = Seq(
-    mvn"com.lihaoyi::sourcecode:0.4.3-M5"
+    mvn"com.lihaoyi::sourcecode:${Versions.comLihaoyiSourcecodeVersion}"
   )
 
   override def scalacPluginMvnDeps: T[Seq[Dep]] = Seq(
@@ -249,10 +250,15 @@ trait MillBuildRootModule()(implicit
       .exclude("com.lihaoyi" -> "sourcecode_3")
   )
 
-  override def scalacOptions: T[Seq[String]] = Task { super.scalacOptions() ++ Seq("-deprecation") }
+  override def scalacOptions: T[Seq[String]] = Task {
+    super.scalacOptions() ++
+      // This warning comes up for package names with dashes in them like "package build.`foo-bar`",
+      // but Mill generally handles these fine, so no need to warn the user
+      Seq("-deprecation", "-Wconf:msg=will be encoded on the classpath:silent")
+  }
 
   /** Used in BSP IntelliJ, which can only work with directories */
-  def dummySources: Sources = Task.Sources(Task.dest)
+  def dummySources: Task[Seq[PathRef]] = Task.Sources(Task.dest)
 
   def millVersion: T[String] = Task.Input { BuildInfo.millVersion }
 
@@ -277,32 +283,84 @@ trait MillBuildRootModule()(implicit
     }
 
     // copied from `ScalaModule`
+    val jOpts = JavaCompilerOptions(javacOptions() ++ mandatoryJavacOptions())
     jvmWorker()
-      .worker()
+      .internalWorker()
       .compileMixed(
-        upstreamCompileOutput = upstreamCompileOutput(),
-        sources = Seq.from(allSourceFiles().map(_.path)),
-        compileClasspath = compileClasspath().map(_.path),
+        ZincCompileMixed(
+          upstreamCompileOutput = upstreamCompileOutput(),
+          sources = Seq.from(allSourceFiles().map(_.path)),
+          compileClasspath = compileClasspath().map(_.path),
+          javacOptions = jOpts.compiler,
+          scalaVersion = scalaVersion(),
+          scalaOrganization = scalaOrganization(),
+          scalacOptions = allScalacOptions(),
+          compilerClasspath = scalaCompilerClasspath(),
+          scalacPluginClasspath = scalacPluginClasspath(),
+          incrementalCompilation = zincIncrementalCompilation(),
+          auxiliaryClassFileExtensions = zincAuxiliaryClassFileExtensions()
+        ),
         javaHome = javaHome().map(_.path),
-        javacOptions = javacOptions() ++ mandatoryJavacOptions(),
-        scalaVersion = scalaVersion(),
-        scalaOrganization = scalaOrganization(),
-        scalacOptions = allScalacOptions(),
-        compilerClasspath = scalaCompilerClasspath(),
-        scalacPluginClasspath = scalacPluginClasspath(),
+        javaRuntimeOptions = jOpts.runtime,
         reporter = Task.reporter.apply(hashCode),
-        reportCachedProblems = zincReportCachedProblems(),
-        incrementalCompilation = zincIncrementalCompilation(),
-        auxiliaryClassFileExtensions = zincAuxiliaryClassFileExtensions()
-      )
+        reportCachedProblems = zincReportCachedProblems()
+      ).map {
+        res =>
+          // Perform the line-number updating in a copy of the classfiles, because
+          // mangling the original class files messes up zinc incremental compilation
+          val transformedClasses = Task.dest / "transformed-classes"
+          os.remove.all(transformedClasses)
+          os.copy(res.classes.path, transformedClasses)
+
+          MillBuildRootModule.updateLineNumbers(
+            transformedClasses,
+            generatedScriptSources().wrapped.head.path
+          )
+
+          res.copy(classes = PathRef(transformedClasses))
+      }
   }
 }
 
 object MillBuildRootModule {
 
+  private def updateLineNumbers(classesDir: os.Path, generatedScriptSourcesPath: os.Path) = {
+    for (p <- os.walk(classesDir) if p.ext == "class") {
+      val rel = p.subRelativeTo(classesDir)
+      // Hack to reverse engineer the `.mill` name from the `.class` file name
+      val sourceNamePrefixOpt0 = rel.last match {
+        case s"${pre}_$_.class" => Some(pre)
+        case s"${pre}$$$_.class" => Some(pre)
+        case s"${pre}.class" => Some(pre)
+        case _ => None
+      }
+
+      val sourceNamePrefixOpt = sourceNamePrefixOpt0 match {
+        case Some("package") if (rel / os.up) == os.rel / "build_" => Some("build")
+        case p => p
+      }
+
+      for (prefix <- sourceNamePrefixOpt) {
+        val sourceFile = generatedScriptSourcesPath / rel / os.up / s"$prefix.mill"
+        if (os.exists(sourceFile)) {
+
+          val lineNumberOffset =
+            os.read.lines(sourceFile).indexOf("//SOURCECODE_ORIGINAL_CODE_START_MARKER") + 1
+          os.write.over(
+            p,
+            os
+              .read
+              .stream(p)
+              .readBytesThrough(stream => AsmPositionUpdater.postProcess(-lineNumberOffset, stream))
+          )
+        }
+      }
+    }
+  }
+
   class BootstrapModule()(implicit
-      rootModuleInfo: RootModule0.Info
-  ) extends mill.main.MainRootModule() with MillBuildRootModule() {
+      rootModuleInfo: RootModule.Info
+  ) extends MainRootModule() with MillBuildRootModule() {
     override lazy val millDiscover = Discover[this.type]
   }
 
@@ -314,7 +372,7 @@ object MillBuildRootModule {
 
   def parseBuildFiles(
       parser: MillScalaParser,
-      millBuildRootModuleInfo: RootModule0.Info
+      millBuildRootModuleInfo: RootModule.Info
   ): FileImportGraph = {
     FileImportGraph.parseBuildFiles(
       millBuildRootModuleInfo.topLevelProjectRoot,

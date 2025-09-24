@@ -44,7 +44,7 @@ trait BuildInfo extends JavaModule {
    * A mapping of key-value pairs to pass from the Build script to the
    * application code at runtime.
    */
-  def buildInfoMembers: T[Seq[BuildInfo.Value]] = Seq.empty[BuildInfo.Value]
+  def buildInfoMembers: T[Seq[BuildInfo.Value]] = Seq()
 
   def resources: T[Seq[PathRef]] =
     if (buildInfoStaticCompiled) Task { super.resources() }
@@ -108,7 +108,7 @@ object BuildInfo {
 
   case class Value(key: String, value: String, comment: String = "")
   object Value {
-    implicit val rw: upickle.default.ReadWriter[Value] = upickle.default.macroRW
+    implicit val rw: upickle.ReadWriter[Value] = upickle.macroRW
   }
   def staticCompiledCodegen(
       buildInfoMembers: Seq[Value],

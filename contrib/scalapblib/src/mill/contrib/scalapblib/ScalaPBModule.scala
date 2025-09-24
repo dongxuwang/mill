@@ -52,9 +52,7 @@ trait ScalaPBModule extends ScalaModule {
 
   def scalaPBProtocPath: T[Option[String]] = Task { None }
 
-  def scalaPBSources: T[Seq[PathRef]] = Task.Sources {
-    moduleDir / "protobuf"
-  }
+  def scalaPBSources: T[Seq[PathRef]] = Task.Sources("protobuf")
 
   def scalaPBOptions: T[String] = Task {
     (
@@ -93,8 +91,8 @@ trait ScalaPBModule extends ScalaModule {
   def scalaPBProtoClasspath: T[Seq[PathRef]] = Task {
     millResolver().classpath(
       Seq(
-        coursierDependency.withConfiguration(coursier.core.Configuration.provided),
-        coursierDependency
+        coursierDependencyTask().withConfiguration(coursier.core.Configuration.provided),
+        coursierDependencyTask()
       )
     )
   }
